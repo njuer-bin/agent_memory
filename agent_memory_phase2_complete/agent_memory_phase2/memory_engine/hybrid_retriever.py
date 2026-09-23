@@ -10,12 +10,14 @@ logger = logging.getLogger(__name__)
 
 from .store import BM25
 from .vector import cosine
+from .vector_index import MemoryVectorIndex
 
 
 class HybridRetriever:
-    def __init__(self, store, embedder):
+    def __init__(self, store, embedder, vector_index: MemoryVectorIndex | None = None):
         self.store = store
         self.embedder = embedder
+        self.vector_index = vector_index or MemoryVectorIndex(store)
 
     def candidates(self, user_id, query, top_k=30, include_history=False,
                    session_id=None, start_time=None, end_time=None,
@@ -115,23 +117,23 @@ class HybridRetriever:
         bm25_ms = (time.perf_counter() - t_profile) * 1000
         sparse_rank = {d["id"]: i+1 for i,(d,_) in enumerate(sparse)}
 
-        # Dense retrieval 使用 Add 阶段已经持久化到 SQLite 的向量。
-        # 这里只计算一次 query embedding，不再对每条 memory 重新调用 embedding 服务。
+        # Dense retrieval:
+        # 1) query 只调用一次 embedding；
+        # 2) 文档向量由进程级 MemoryVectorIndex 常驻内存；
+        # 3) SQLite 仅作为持久化源，避免每次 Search JSON-decode 数百条向量。
         t_profile = time.perf_counter()
         qv = self.embedder.embed(query)
         embedding_ms = (time.perf_counter() - t_profile) * 1000
+
         t_profile = time.perf_counter()
-        vectors = self.store.embeddings_by_ids(user_id, [d["id"] for d in docs])
+        dense_pairs = self.vector_index.search(
+            user_id,
+            qv,
+            ids=[d["id"] for d in docs],
+            top_k=min(50, len(docs)),
+        )
         vector_load_ms = (time.perf_counter() - t_profile) * 1000
-        vector_scores = []
-        for d in docs:
-            dv = vectors.get(d["id"])
-            if dv is None:
-                continue
-            s = max(-1.0, min(1.0, cosine(qv, dv)))
-            vector_scores.append((d, s))
-        vector_scores.sort(key=lambda x:x[1], reverse=True)
-        dense_rank = {d["id"]: i+1 for i,(d,_) in enumerate(vector_scores[:50])}
+        dense_rank = {mid: i + 1 for i, (mid, _) in enumerate(dense_pairs)}
 
         # RRF：避免 sparse/dense 的原始分数不可比。
         t_profile = time.perf_counter()
