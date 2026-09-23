@@ -54,8 +54,12 @@ class HybridRetriever:
                 "timestamp": e["timestamp"], "user_id": user_id,
                 "session_id": "", "memory_type": "event",
                 "status": "active", "source": "timeline",
-                "valid_from": e["timestamp"], "valid_to": None,
-                "metadata": {"event":e["event"]},
+                "valid_from": e.get("event_start") or e["timestamp"],
+                "valid_to": e.get("event_end"),
+                "metadata": {
+                    "event": e["event"],
+                    "temporal_text": e.get("temporal_text") or "",
+                },
             })
 
         for r in relations:
