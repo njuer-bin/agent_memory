@@ -68,9 +68,9 @@ def timed_search(user, query, **kwargs):
     return results, (time.perf_counter() - t0) * 1000
 
 
-def setup():
-    add("bench-a", "我现在住在杭州。", T["old"], "session-a")
-    add("bench-a", "后来我搬到上海。", T["new"], "session-a")
+def setup(user_a, user_b):
+    add(user_a, "我现在住在杭州。", T["old"], "session-a")
+    add(user_a, "后来我搬到上海。", T["new"], "session-a")
     add("bench-a", "我喜欢咖啡。", T["mid"], "session-a")
     add("bench-a", "我不喜欢太甜的饮料。", T["mid"], "session-a")
     add("bench-a", "我的朋友小王。", T["mid"], "session-a")
@@ -89,7 +89,7 @@ def setup():
     add("bench-a", "请记住，我一般工作日早上喝咖啡。", T["new"], "session-a")
 
     # Cross-user isolation sentinel.
-    add("bench-b", "我住在深圳。", T["new"], "session-b")
+    add(user_b, "我住在深圳。", T["new"], "session-b")
 
 
 def run_case(name, user, query, expected, **kwargs):
@@ -113,7 +113,10 @@ def main():
     print("=" * 72)
     print(f"BASE={BASE}  TOP_K={TOP_K}")
 
-    setup()
+    run_id = uuid.uuid4().hex[:10]
+    user_a = "bench-a-" + run_id
+    user_b = "bench-b-" + run_id
+    setup(user_a, user_b)
 
     cases = [
         ("explicit_current_fact", "bench-a", "我现在住哪里？", "上海", {}),
@@ -124,7 +127,7 @@ def main():
          {"multi_hop": True}),
         ("rule", "bench-a", "我的习惯是什么？", "周末喝咖啡", {}),
         ("event", "bench-a", "我去北京参加了什么？", "北京", {}),
-        ("isolation", "bench-b", "我现在住哪里？", "深圳", {}),
+        ("isolation", user_b, "我现在住哪里？", "深圳", {}),
         ("occupation", "bench-a", "我的职业是什么？", "软件工程师", {}),
         ("workplace", "bench-a", "我在哪里工作？", "南京大学", {}),
         ("birthday", "bench-a", "我的生日是什么？", "5月20日", {}),
@@ -156,7 +159,7 @@ def main():
         rows.append(run_case(name, user, query, expected, **kwargs))
 
     # Stronger isolation assertion: the other user's Shanghai must not appear.
-    leak_results = search("bench-b", "我现在住哪里？")
+    leak_results = search(user_b, "我现在住哪里？")
     isolation_ok = (
         any("深圳" in r["content"] for r in leak_results)
         and not any("上海" in r["content"] for r in leak_results)
@@ -198,6 +201,9 @@ def main():
         print("FAILED CASES:", ", ".join(failed) if failed else "none")
         if not isolation_ok:
             print("FAILED CASE: cross-user isolation")
+        for row in rows:
+            if not row["pass"]:
+                print(f"DEBUG {row['name']}: top={row['top']!r}")
         raise SystemExit(1)
 
     print()
