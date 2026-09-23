@@ -16,6 +16,8 @@ class QueryPlan:
     temporal_start: int | None = None
     temporal_end: int | None = None
     temporal_relation: str = "at"
+    memory_type_hint: str | None = None
+    relation_hint: bool = False
 
 
 class QueryAnalyzer:
@@ -43,10 +45,31 @@ class QueryAnalyzer:
             reference_ts = int(time.time() * 1000)
         info = normalize_temporal(q, reference_ts)
         keywords = self.keywords(rewritten)
+        memory_type_hint = self.infer_memory_type(q)
+        relation_hint = any(
+            marker in q for marker in (
+                "朋友", "同事", "推荐", "介绍", "谁和", "关系", "和谁"
+            )
+        )
         return QueryPlan(
             q, rewritten, multi, keywords, temporal,
-            info.start, info.end, info.relation
+            info.start, info.end, info.relation,
+            memory_type_hint, relation_hint
         )
+
+    @staticmethod
+    def infer_memory_type(q: str) -> str | None:
+        if any(x in q for x in ("习惯", "通常", "一般", "规则", "请记住", "总是")):
+            return "rule"
+        if any(x in q for x in ("什么时候", "何时", "哪天", "哪一年", "参加了什么", "发生了什么")):
+            return "event"
+        if any(x in q for x in ("朋友", "同事", "推荐", "介绍", "谁和", "关系", "和谁")):
+            return "relation"
+        if any(x in q for x in ("喜欢", "爱好", "偏好", "不喜欢")):
+            return "fact"
+        if any(x in q for x in ("住哪里", "住哪", "居住地", "住过")):
+            return "fact"
+        return None
 
     @staticmethod
     def rewrite(q: str) -> str:
