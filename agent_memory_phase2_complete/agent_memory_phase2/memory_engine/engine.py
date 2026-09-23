@@ -15,6 +15,7 @@ from .query_analyzer import QueryAnalyzer
 from .reranker import LightweightReranker
 from .store import SQLiteStore
 from .vector import EmbeddingProvider
+from .vector_index import MemoryVectorIndex
 
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,9 @@ class MemoryEngine:
         self.analyzer = MemoryAnalyzer()
         self.governance = MemoryGovernance(self.store)
         self.embedder = EmbeddingProvider()
-        self.hybrid = HybridRetriever(self.store, self.embedder)
+        # SQLite 持久化 + 进程级向量索引：Search 热路径不再反复读取/解析 JSON 向量。
+        self.vector_index = MemoryVectorIndex(self.store)
+        self.hybrid = HybridRetriever(self.store, self.embedder, self.vector_index)
         self.graph = GraphRetriever(self.store)
         self.query_analyzer = QueryAnalyzer()
         self.reranker = LightweightReranker()
@@ -65,8 +68,10 @@ class MemoryEngine:
                     "chunk_index": batch_idx,
                 })
 
-                # 原始记忆也建立向量索引，确保无规则抽取时仍可召回。
-                self.store.embed(raw_id, request.user_id, self.embedder.embed(msg.content))
+                # 原始记忆同时写入 SQLite 和进程级向量索引，保证 Add -> Search 立即可见。
+                raw_vector = self.embedder.embed(msg.content)
+                self.store.embed(raw_id, request.user_id, raw_vector)
+                self.vector_index.add(request.user_id, raw_id, raw_vector)
 
                 analyzed = self.analyzer.analyze(
                     request.user_id, msg.content, ts
@@ -75,23 +80,27 @@ class MemoryEngine:
                 for fact in analyzed["facts"]:
                     inserted, _ = self.governance.accept_fact(fact)
                     if inserted:
-                        self.store.embed(fact.id, request.user_id,
-                                         self.embedder.embed(fact.content))
+                        fact_vector = self.embedder.embed(fact.content)
+                    self.store.embed(fact.id, request.user_id, fact_vector)
+                    self.vector_index.add(request.user_id, fact.id, fact_vector)
 
                 for rel in analyzed["relations"]:
                     self.store.insert_relation(rel)
-                    self.store.embed(rel.id, request.user_id,
-                                     self.embedder.embed(rel.content))
+                    rel_vector = self.embedder.embed(rel.content)
+                    self.store.embed(rel.id, request.user_id, rel_vector)
+                    self.vector_index.add(request.user_id, rel.id, rel_vector)
 
                 for event in analyzed["events"]:
                     self.store.insert_event(event)
-                    self.store.embed(event.id, request.user_id,
-                                     self.embedder.embed(event.content))
+                    event_vector = self.embedder.embed(event.content)
+                    self.store.embed(event.id, request.user_id, event_vector)
+                    self.vector_index.add(request.user_id, event.id, event_vector)
 
                 for rule in analyzed["rules"]:
                     self.store.insert_rule(rule)
-                    self.store.embed(rule.id, request.user_id,
-                                     self.embedder.embed(rule.content))
+                    rule_vector = self.embedder.embed(rule.content)
+                    self.store.embed(rule.id, request.user_id, rule_vector)
+                    self.vector_index.add(request.user_id, rule.id, rule_vector)
 
                 for profile in analyzed["profiles"]:
                     self.store.upsert_profile(profile)
