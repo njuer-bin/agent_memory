@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import os
 import time
 from typing import Any
 
@@ -13,6 +15,9 @@ from .query_analyzer import QueryAnalyzer
 from .reranker import LightweightReranker
 from .store import SQLiteStore
 from .vector import EmbeddingProvider
+
+
+logger = logging.getLogger(__name__)
 
 
 class MemoryEngine:
@@ -96,16 +101,22 @@ class MemoryEngine:
         return True
 
     def search(self, request):
+        search_t0 = time.perf_counter()
         query = (request.query or request.question or "").strip()
         if not query:
             return []
 
         # 用用户已有最新记忆作为相对时间参考，避免服务当前时间与 benchmark 时间轴不一致。
-        latest = self.store.all_raw(request.user_id)
-        reference_ts = latest[0]["timestamp"] if latest else now_ms()
-        plan = self.query_analyzer.analyze(query, request.multi_hop, reference_ts)
         t0 = time.perf_counter()
+        latest = self.store.all_raw(request.user_id)
+        latest_ms = (time.perf_counter() - t0) * 1000
+        reference_ts = latest[0]["timestamp"] if latest else now_ms()
 
+        t0 = time.perf_counter()
+        plan = self.query_analyzer.analyze(query, request.multi_hop, reference_ts)
+        analyze_ms = (time.perf_counter() - t0) * 1000
+
+        t0 = time.perf_counter()
         candidates = self.hybrid.candidates(
             user_id=request.user_id,
             query=plan.rewritten,
@@ -122,6 +133,7 @@ class MemoryEngine:
             predicate_hint=plan.predicate_hint,
             intent_hint=plan.intent_hint,
         )
+        hybrid_ms = (time.perf_counter() - t0) * 1000
 
         result = []
         for d, score in candidates:
@@ -139,9 +151,12 @@ class MemoryEngine:
             ]
 
         # 仅多跳查询执行额外图扩展，避免所有查询都增加延迟。
+        graph_ms = 0.0
         if plan.multi_hop:
+            t0 = time.perf_counter()
             expanded = self.graph.expand(request.user_id, result[:5], limit=10)
             result.extend(expanded)
+            graph_ms = (time.perf_counter() - t0) * 1000
 
         # 去重
         dedup = {}
@@ -151,6 +166,7 @@ class MemoryEngine:
                 dedup[key] = r
 
         ranked = list(dedup.values())
+        t0 = time.perf_counter()
         ranked = self.reranker.rerank(
             plan.rewritten,
             ranked,
@@ -162,7 +178,11 @@ class MemoryEngine:
             predicate_hint=plan.predicate_hint,
             intent_hint=plan.intent_hint,
         )
+        rerank_ms = (time.perf_counter() - t0) * 1000
+
+        t0 = time.perf_counter()
         ranked = self.evidence.build(ranked, request.top_k)
+        evidence_ms = (time.perf_counter() - t0) * 1000
 
         # 时间查询的结果顺序：当前有效事实优先；历史查询保留时间信息。
         if not request.include_history and plan.temporal:
@@ -175,4 +195,12 @@ class MemoryEngine:
                 reverse=True,
             )
 
+        total_ms = (time.perf_counter() - search_t0) * 1000
+        if os.getenv("MEMORY_PROFILE", "").strip() == "1":
+            logger.info(
+                "SEARCH_PROFILE query=%r total=%.2f latest=%.2f analyze=%.2f hybrid=%.2f "
+                "graph=%.2f rerank=%.2f evidence=%.2f candidates=%d final=%d",
+                query, total_ms, latest_ms, analyze_ms, hybrid_ms, graph_ms,
+                rerank_ms, evidence_ms, len(candidates), len(ranked),
+            )
         return ranked[:request.top_k]
