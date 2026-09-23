@@ -58,14 +58,22 @@ class MemoryVectorIndex:
         self._matrix[user_id] = matrix
 
     def add(self, user_id: str, memory_id: str, vector: list[float]) -> None:
+        # If this user already has persisted vectors from before the current
+        # process started, load them before inserting the new vector. Otherwise
+        # the first Add after startup could hide historical vectors from Search.
+        self._ensure_user(user_id)
+
         arr = np.asarray(vector, dtype=np.float32)
+        if arr.ndim != 1:
+            arr = arr.reshape(-1)
+        if not np.all(np.isfinite(arr)):
+            raise ValueError("embedding contains non-finite values")
         norm = float(np.linalg.norm(arr))
         if norm > 0:
             arr = arr / norm
 
         with self._lock:
             self._vectors.setdefault(user_id, {})[memory_id] = arr
-            self._loaded_users.add(user_id)
             self._rebuild_matrix(user_id)
 
     def search(
