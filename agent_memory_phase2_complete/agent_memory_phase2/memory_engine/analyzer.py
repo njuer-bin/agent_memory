@@ -100,8 +100,8 @@ class MemoryAnalyzer:
     ]
 
     REL_PATTERNS = [
-        (re.compile(r"(?:我的|我)?(?:朋友|好友)\s*([A-Za-z0-9_\u4e00-\u9fff]{1,20})"), "friend"),
-        (re.compile(r"(?:我的|我)?同事\s*([A-Za-z0-9_\u4e00-\u9fff]{1,20})"), "colleague"),
+        (re.compile(r"(?:我的|我)?(?:朋友|好友)\s*(?:是|叫|为)?\s*([A-Za-z0-9_\u4e00-\u9fff]{1,4})(?=推荐|介绍|、|，|。|\s|$)"), "friend"),
+        (re.compile(r"(?:我的|我)?同事\s*(?:是|叫|为)?\s*([A-Za-z0-9_\u4e00-\u9fff]{1,4})(?=推荐|介绍|、|，|。|\s|$)"), "colleague"),
         (re.compile(r"(?:我的|我)?老板\s*([A-Za-z0-9_\u4e00-\u9fff]{1,20})"), "boss"),
         (re.compile(r"(?:我的|我)?(?:妈妈|母亲)\s*([A-Za-z0-9_\u4e00-\u9fff]{1,20})"), "mother"),
         (re.compile(r"(?:我的|我)?(?:爸爸|父亲)\s*([A-Za-z0-9_\u4e00-\u9fff]{1,20})"), "father"),
@@ -136,16 +136,17 @@ class MemoryAnalyzer:
 
         for pattern, predicate in self.FACT_PATTERNS:
             for m in pattern.finditer(content):
+                current_predicate = predicate
                 obj = m.group(1).strip(" ，,。；;")
                 if not obj:
                     continue
 
                 # “我不喜欢X”不应被 like 规则截断为“不喜欢X”
-                if predicate == "like" and obj.startswith(("不", "讨厌")):
-                    predicate = "dislike"
+                if current_predicate == "like" and obj.startswith(("不", "讨厌")):
+                    current_predicate = "dislike"
 
                 fact_text = m.group(0).strip()
-                fp = fingerprint(user_id, "fact", "user", predicate, obj)
+                fp = fingerprint(user_id, "fact", "user", current_predicate, obj)
 
                 valid_from = temporal.start if temporal.start is not None else timestamp
                 valid_to = temporal.end
@@ -153,7 +154,7 @@ class MemoryAnalyzer:
                     id=new_id("fact"),
                     user_id=user_id,
                     subject="user",
-                    predicate=predicate,
+                    predicate=current_predicate,
                     object=obj,
                     content=fact_text,
                     timestamp=timestamp,
@@ -163,7 +164,7 @@ class MemoryAnalyzer:
                     temporal_text=temporal_text,
                 ))
                 profiles.append(Profile(
-                    user_id=user_id, key=predicate, value=obj,
+                    user_id=user_id, key=current_predicate, value=obj,
                     content=fact_text, timestamp=timestamp
                 ))
 
