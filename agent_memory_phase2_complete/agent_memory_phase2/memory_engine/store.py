@@ -24,6 +24,8 @@ class SQLiteStore:
         self.path = path
         Path(path).parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        # 进程内 embedding cache：Add 写入时同步更新，Search 优先命中内存。
+        self._embedding_cache: dict[str, dict[str, list[float]]] = defaultdict(dict)
         self._init_db()
 
     def connect(self):
@@ -224,11 +226,14 @@ class SQLiteStore:
             """, (p.user_id,p.key,p.value,p.content,p.timestamp))
 
     def embed(self, memory_id: str, user_id: str, vector: list[float]):
-        with self._lock, self.connect() as c:
-            c.execute("""
-                INSERT OR REPLACE INTO embeddings(memory_id,user_id,vector)
-                VALUES(?,?,?)
-            """, (memory_id,user_id,json.dumps(vector,separators=(",",":"))))
+        # 先更新内存 cache，再持久化；同一进程内 Add -> Search 立即可见。
+        with self._lock:
+            self._embedding_cache[user_id][memory_id] = list(vector)
+            with self.connect() as c:
+                c.execute("""
+                    INSERT OR REPLACE INTO embeddings(memory_id,user_id,vector)
+                    VALUES(?,?,?)
+                """, (memory_id,user_id,json.dumps(vector,separators=(",",":"))))
 
     def all_raw(self, user_id: str, session_id: Optional[str] = None):
         sql = "SELECT * FROM raw_memories WHERE user_id=?"
@@ -292,16 +297,32 @@ class SQLiteStore:
         return [(r["memory_id"], json.loads(r["vector"])) for r in rows]
 
     def embeddings_by_ids(self, user_id: str, ids: Iterable[str]):
-        ids = list(ids)
+        ids = list(dict.fromkeys(ids))
         if not ids:
             return {}
-        marks = ",".join("?" * len(ids))
-        with self._lock, self.connect() as c:
-            rows = c.execute(
-                f"SELECT memory_id, vector FROM embeddings WHERE user_id=? AND memory_id IN ({marks})",
-                [user_id, *ids]
-            ).fetchall()
-        return {r["memory_id"]: json.loads(r["vector"]) for r in rows}
+
+        # 热路径：已经在本进程 Add/前一次 Search 中加载过的向量直接返回。
+        with self._lock:
+            cached = self._embedding_cache.setdefault(user_id, {})
+            result = {mid: cached[mid] for mid in ids if mid in cached}
+            missing = [mid for mid in ids if mid not in cached]
+
+            if not missing:
+                return result
+
+            # 冷启动/外部写入场景只查询缺失 ID，并把结果回填 cache。
+            marks = ",".join("?" * len(missing))
+            with self.connect() as c:
+                rows = c.execute(
+                    f"SELECT memory_id, vector FROM embeddings WHERE user_id=? AND memory_id IN ({marks})",
+                    [user_id, *missing]
+                ).fetchall()
+
+            for row in rows:
+                vector = json.loads(row["vector"])
+                cached[row["memory_id"]] = vector
+                result[row["memory_id"]] = vector
+            return result
 
     def raw_by_ids(self, user_id: str, ids: Iterable[str]):
         ids = list(ids)
