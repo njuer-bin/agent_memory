@@ -118,7 +118,9 @@ class MemoryEngine:
             memory_type_hint=plan.memory_type_hint,
             temporal_relation=plan.temporal_relation,
             relation_hint=plan.relation_hint,
-            sparse_query=plan.expanded_query,
+            sparse_query=plan.rewritten,
+            predicate_hint=plan.predicate_hint,
+            intent_hint=plan.intent_hint,
         )
 
         result = []
@@ -156,7 +158,9 @@ class MemoryEngine:
             memory_type_hint=plan.memory_type_hint,
             relation_hint=plan.relation_hint,
             temporal_relation=plan.temporal_relation,
-            expanded_query=plan.expanded_query,
+            expanded_query=None,
+            predicate_hint=plan.predicate_hint,
+            intent_hint=plan.intent_hint,
         )
         ranked = self.evidence.build(ranked, request.top_k)
 
