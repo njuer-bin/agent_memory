@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -7,6 +8,8 @@ from fastapi.responses import JSONResponse
 
 from memory_engine.engine import MemoryEngine
 from memory_engine.models import AddRequest, AddResponse, SearchRequest, SearchResponse, SearchResult
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="AML Phase 2 Memory Engine", version="2.0.0")
 engine = MemoryEngine(os.getenv("MEMORY_DB_PATH", "data/memory.db"))
@@ -42,7 +45,8 @@ def add(
         engine.add(payload)
         return AddResponse(success=True, request_id=payload.request_id)
     except Exception as exc:
-        # 不吞掉异常；接口返回明确 500，便于平台重试。
+        # 保留 traceback，避免只看到 Uvicorn 的 500 而无法定位 Add 阶段错误。
+        logger.exception("ADD_FAILED request_id=%s user_id=%s", payload.request_id, payload.user_id)
         raise HTTPException(status_code=500, detail=str(exc))
 
 
@@ -58,4 +62,5 @@ def search(
         results = [SearchResult(**r) for r in rows]
         return SearchResponse(results=results)
     except Exception as exc:
+        logger.exception("SEARCH_FAILED user_id=%s", payload.user_id)
         raise HTTPException(status_code=500, detail=str(exc))
