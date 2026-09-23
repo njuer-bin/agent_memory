@@ -117,6 +117,12 @@ class MemoryEngine:
             memory_types=request.memory_types,
         )
 
+        result = []
+        for d, score in candidates:
+            item = dict(d)
+            item["score"] = score
+            result.append(item)
+
         # 查询级时间约束：优先使用显式时间窗口；“以前/去年/上个月”等
         # 会由 QueryAnalyzer 归一化后应用到候选证据。
         if plan.temporal and (plan.temporal_start is not None or plan.temporal_end is not None):
@@ -125,9 +131,6 @@ class MemoryEngine:
                 if (plan.temporal_start is None or r.get("valid_from", r.get("timestamp", 0)) >= plan.temporal_start)
                 and (plan.temporal_end is None or r.get("valid_from", r.get("timestamp", 0)) <= plan.temporal_end)
             ]
-
-        result = []
-        for d, score in candidates:
             item = dict(d)
             item["score"] = score
             result.append(item)
