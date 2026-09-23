@@ -131,9 +131,6 @@ class MemoryEngine:
                 if (plan.temporal_start is None or r.get("valid_from", r.get("timestamp", 0)) >= plan.temporal_start)
                 and (plan.temporal_end is None or r.get("valid_from", r.get("timestamp", 0)) <= plan.temporal_end)
             ]
-            item = dict(d)
-            item["score"] = score
-            result.append(item)
 
         # 仅多跳查询执行额外图扩展，避免所有查询都增加延迟。
         if plan.multi_hop:
