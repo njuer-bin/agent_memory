@@ -36,6 +36,7 @@ def main():
 
     current = search(user, "我现在住哪里？")
     assert current and any("上海" in x["content"] for x in current)
+    assert len({x["id"] for x in current}) == len(current)
 
     history = search(user, "我以前住哪里？", history=True)
     assert history and any("杭州" in x["content"] for x in history)
