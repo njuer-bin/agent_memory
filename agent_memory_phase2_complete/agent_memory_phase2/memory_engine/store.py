@@ -162,6 +162,22 @@ class SQLiteStore:
                 f.status, getattr(f, "supersedes_id", None)
             ))
 
+    def find_same_relation(self, user_id, subject, predicate, object_):
+        with self._lock, self.connect() as c:
+            return c.execute("""
+                SELECT * FROM entity_relations
+                WHERE user_id=? AND subject=? AND predicate=? AND object=?
+                ORDER BY timestamp DESC LIMIT 1
+            """, (user_id, subject, predicate, object_)).fetchone()
+
+    def find_same_rule(self, user_id, rule):
+        with self._lock, self.connect() as c:
+            return c.execute("""
+                SELECT * FROM rule_memories
+                WHERE user_id=? AND rule=?
+                ORDER BY timestamp DESC LIMIT 1
+            """, (user_id, rule)).fetchone()
+
     def insert_relation(self, r):
         with self._lock, self.connect() as c:
             c.execute("""
