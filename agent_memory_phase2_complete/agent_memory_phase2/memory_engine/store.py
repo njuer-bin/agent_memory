@@ -198,8 +198,8 @@ class SQLiteStore:
         with self._lock, self.connect() as c:
             c.execute("""
                 INSERT INTO timeline_events
-                (id,user_id,event,content,timestamp,fingerprint)
-                VALUES(?,?,?,?,?,?)
+                (id,user_id,event,content,timestamp,fingerprint,event_start,event_end,temporal_text)
+                VALUES(?,?,?,?,?,?,?,?,?)
             """, (e.id,e.user_id,e.event,e.content,e.timestamp,e.fingerprint,
                   getattr(e, "event_start", None), getattr(e, "event_end", None),
                   getattr(e, "temporal_text", "")))
