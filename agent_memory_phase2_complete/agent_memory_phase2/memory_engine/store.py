@@ -291,6 +291,18 @@ class SQLiteStore:
             ).fetchall()
         return [(r["memory_id"], json.loads(r["vector"])) for r in rows]
 
+    def embeddings_by_ids(self, user_id: str, ids: Iterable[str]):
+        ids = list(ids)
+        if not ids:
+            return {}
+        marks = ",".join("?" * len(ids))
+        with self._lock, self.connect() as c:
+            rows = c.execute(
+                f"SELECT memory_id, vector FROM embeddings WHERE user_id=? AND memory_id IN ({marks})",
+                [user_id, *ids]
+            ).fetchall()
+        return {r["memory_id"]: json.loads(r["vector"]) for r in rows}
+
     def raw_by_ids(self, user_id: str, ids: Iterable[str]):
         ids = list(ids)
         if not ids:
