@@ -14,7 +14,7 @@ class HybridRetriever:
     def candidates(self, user_id, query, top_k=30, include_history=False,
                    session_id=None, start_time=None, end_time=None,
                    memory_types=None, memory_type_hint=None,
-                   temporal_relation="at", relation_hint=False):
+                   temporal_relation="at", relation_hint=False, sparse_query=None):
         raws = self.store.all_raw(user_id, session_id=session_id)
         if start_time is not None:
             raws = [r for r in raws if r["timestamp"] >= start_time]
@@ -104,7 +104,7 @@ class HybridRetriever:
 
         bm = BM25()
         bm.fit(docs)
-        sparse = bm.search(query, top_k=min(50, len(docs)))
+        sparse = bm.search(sparse_query or query, top_k=min(50, len(docs)))
         sparse_rank = {d["id"]: i+1 for i,(d,_) in enumerate(sparse)}
 
         # Dense retrieval 使用 Add 阶段已经持久化到 SQLite 的向量。
