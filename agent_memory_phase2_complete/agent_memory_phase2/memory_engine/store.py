@@ -1,0 +1,341 @@
+from __future__ import annotations
+
+import json
+import math
+import re
+import sqlite3
+import threading
+from collections import Counter, defaultdict
+from pathlib import Path
+from typing import Any, Iterable, Optional
+
+from .models import now_ms
+
+
+TOKEN_RE = re.compile(r"[\u4e00-\u9fff]|[A-Za-z0-9_]+", re.UNICODE)
+
+
+def tokenize(text: str) -> list[str]:
+    return [x.lower() for x in TOKEN_RE.findall(text or "")]
+
+
+class SQLiteStore:
+    def __init__(self, path: str = "data/memory.db"):
+        self.path = path
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.RLock()
+        self._init_db()
+
+    def connect(self):
+        conn = sqlite3.connect(self.path, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def _init_db(self):
+        with self._lock, self.connect() as c:
+            c.executescript("""
+            PRAGMA journal_mode=WAL;
+
+            CREATE TABLE IF NOT EXISTS request_log (
+                request_id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS raw_memories (
+                id TEXT PRIMARY KEY,
+                request_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                timestamp INTEGER NOT NULL,
+                chunk_index INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS atomic_facts (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                predicate TEXT NOT NULL,
+                object TEXT NOT NULL,
+                content TEXT NOT NULL,
+                timestamp INTEGER NOT NULL,
+                fingerprint TEXT NOT NULL,
+                valid_from INTEGER NOT NULL,
+                valid_to INTEGER,
+                status TEXT NOT NULL DEFAULT 'active',
+                supersedes_id TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS entity_relations (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                subject TEXT NOT NULL,
+                predicate TEXT NOT NULL,
+                object TEXT NOT NULL,
+                content TEXT NOT NULL,
+                timestamp INTEGER NOT NULL,
+                fingerprint TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS timeline_events (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                event TEXT NOT NULL,
+                content TEXT NOT NULL,
+                timestamp INTEGER NOT NULL,
+                fingerprint TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS rule_memories (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                rule TEXT NOT NULL,
+                content TEXT NOT NULL,
+                timestamp INTEGER NOT NULL,
+                fingerprint TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS user_profiles (
+                user_id TEXT NOT NULL,
+                key TEXT NOT NULL,
+                value TEXT NOT NULL,
+                content TEXT NOT NULL,
+                timestamp INTEGER NOT NULL,
+                PRIMARY KEY(user_id, key)
+            );
+
+            CREATE TABLE IF NOT EXISTS embeddings (
+                memory_id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                vector TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_raw_user_time
+                ON raw_memories(user_id, timestamp);
+            CREATE INDEX IF NOT EXISTS idx_fact_user_status
+                ON atomic_facts(user_id, status);
+            CREATE INDEX IF NOT EXISTS idx_fact_key
+                ON atomic_facts(user_id, subject, predicate);
+            CREATE INDEX IF NOT EXISTS idx_rel_user
+                ON entity_relations(user_id);
+            CREATE INDEX IF NOT EXISTS idx_event_user_time
+                ON timeline_events(user_id, timestamp);
+            """)
+
+    def request_seen(self, request_id: str) -> bool:
+        with self._lock, self.connect() as c:
+            return c.execute(
+                "SELECT 1 FROM request_log WHERE request_id=?",
+                (request_id,)
+            ).fetchone() is not None
+
+    def register_request(self, request_id: str, user_id: str):
+        with self._lock, self.connect() as c:
+            c.execute(
+                "INSERT OR IGNORE INTO request_log(request_id,user_id,created_at) VALUES(?,?,?)",
+                (request_id, user_id, now_ms())
+            )
+
+    def insert_raw(self, row: dict[str, Any]):
+        with self._lock, self.connect() as c:
+            c.execute("""
+                INSERT INTO raw_memories
+                (id,request_id,user_id,session_id,role,content,timestamp,chunk_index)
+                VALUES(?,?,?,?,?,?,?,?)
+            """, (
+                row["id"], row["request_id"], row["user_id"], row["session_id"],
+                row["role"], row["content"], row["timestamp"], row.get("chunk_index", 0)
+            ))
+
+    def insert_fact(self, f):
+        with self._lock, self.connect() as c:
+            c.execute("""
+                INSERT INTO atomic_facts
+                (id,user_id,subject,predicate,object,content,timestamp,fingerprint,
+                 valid_from,valid_to,status,supersedes_id)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+            """, (
+                f.id, f.user_id, f.subject, f.predicate, f.object, f.content,
+                f.timestamp, f.fingerprint, f.valid_from, f.valid_to,
+                f.status, getattr(f, "supersedes_id", None)
+            ))
+
+    def insert_relation(self, r):
+        with self._lock, self.connect() as c:
+            c.execute("""
+                INSERT INTO entity_relations
+                (id,user_id,subject,predicate,object,content,timestamp,fingerprint)
+                VALUES(?,?,?,?,?,?,?,?)
+            """, (r.id,r.user_id,r.subject,r.predicate,r.object,r.content,
+                  r.timestamp,r.fingerprint))
+
+    def insert_event(self, e):
+        with self._lock, self.connect() as c:
+            c.execute("""
+                INSERT INTO timeline_events
+                (id,user_id,event,content,timestamp,fingerprint)
+                VALUES(?,?,?,?,?,?)
+            """, (e.id,e.user_id,e.event,e.content,e.timestamp,e.fingerprint))
+
+    def insert_rule(self, r):
+        with self._lock, self.connect() as c:
+            c.execute("""
+                INSERT INTO rule_memories
+                (id,user_id,rule,content,timestamp,fingerprint)
+                VALUES(?,?,?,?,?,?)
+            """, (r.id,r.user_id,r.rule,r.content,r.timestamp,r.fingerprint))
+
+    def upsert_profile(self, p):
+        with self._lock, self.connect() as c:
+            c.execute("""
+                INSERT INTO user_profiles(user_id,key,value,content,timestamp)
+                VALUES(?,?,?,?,?)
+                ON CONFLICT(user_id,key) DO UPDATE SET
+                    value=excluded.value,
+                    content=excluded.content,
+                    timestamp=excluded.timestamp
+            """, (p.user_id,p.key,p.value,p.content,p.timestamp))
+
+    def embed(self, memory_id: str, user_id: str, vector: list[float]):
+        with self._lock, self.connect() as c:
+            c.execute("""
+                INSERT OR REPLACE INTO embeddings(memory_id,user_id,vector)
+                VALUES(?,?,?)
+            """, (memory_id,user_id,json.dumps(vector,separators=(",",":"))))
+
+    def all_raw(self, user_id: str, session_id: Optional[str] = None):
+        sql = "SELECT * FROM raw_memories WHERE user_id=?"
+        args = [user_id]
+        if session_id:
+            sql += " AND session_id=?"
+            args.append(session_id)
+        sql += " ORDER BY timestamp DESC"
+        with self._lock, self.connect() as c:
+            return [dict(r) for r in c.execute(sql,args).fetchall()]
+
+    def active_facts(self, user_id: str, include_history=False):
+        sql = "SELECT * FROM atomic_facts WHERE user_id=?"
+        args = [user_id]
+        if not include_history:
+            sql += " AND status='active'"
+        sql += " ORDER BY timestamp DESC"
+        with self._lock, self.connect() as c:
+            return [dict(r) for r in c.execute(sql,args).fetchall()]
+
+    def relations(self, user_id: str):
+        with self._lock, self.connect() as c:
+            return [dict(r) for r in c.execute(
+                "SELECT * FROM entity_relations WHERE user_id=? ORDER BY timestamp DESC",
+                (user_id,)
+            ).fetchall()]
+
+    def events(self, user_id: str, start_time=None, end_time=None):
+        sql = "SELECT * FROM timeline_events WHERE user_id=?"
+        args = [user_id]
+        if start_time is not None:
+            sql += " AND timestamp>=?"
+            args.append(start_time)
+        if end_time is not None:
+            sql += " AND timestamp<=?"
+            args.append(end_time)
+        sql += " ORDER BY timestamp DESC"
+        with self._lock, self.connect() as c:
+            return [dict(r) for r in c.execute(sql,args).fetchall()]
+
+    def rules(self, user_id: str):
+        with self._lock, self.connect() as c:
+            return [dict(r) for r in c.execute(
+                "SELECT * FROM rule_memories WHERE user_id=? ORDER BY timestamp DESC",
+                (user_id,)
+            ).fetchall()]
+
+    def profiles(self, user_id: str):
+        with self._lock, self.connect() as c:
+            return [dict(r) for r in c.execute(
+                "SELECT * FROM user_profiles WHERE user_id=?",
+                (user_id,)
+            ).fetchall()]
+
+    def embeddings(self, user_id: str):
+        with self._lock, self.connect() as c:
+            rows = c.execute(
+                "SELECT memory_id, vector FROM embeddings WHERE user_id=?",
+                (user_id,)
+            ).fetchall()
+        return [(r["memory_id"], json.loads(r["vector"])) for r in rows]
+
+    def raw_by_ids(self, user_id: str, ids: Iterable[str]):
+        ids = list(ids)
+        if not ids:
+            return []
+        marks = ",".join("?" * len(ids))
+        with self._lock, self.connect() as c:
+            return [dict(r) for r in c.execute(
+                f"SELECT * FROM raw_memories WHERE user_id=? AND id IN ({marks})",
+                [user_id,*ids]
+            ).fetchall()]
+
+    def update_fact_status(self, fact_id: str, status: str, valid_to=None):
+        with self._lock, self.connect() as c:
+            c.execute(
+                "UPDATE atomic_facts SET status=?, valid_to=? WHERE id=?",
+                (status, valid_to, fact_id)
+            )
+
+    def find_same_fact(self, user_id, subject, predicate, object_):
+        with self._lock, self.connect() as c:
+            return c.execute("""
+                SELECT * FROM atomic_facts
+                WHERE user_id=? AND subject=? AND predicate=? AND object=?
+                ORDER BY timestamp DESC LIMIT 1
+            """, (user_id,subject,predicate,object_)).fetchone()
+
+    def find_current_fact(self, user_id, subject, predicate):
+        with self._lock, self.connect() as c:
+            return c.execute("""
+                SELECT * FROM atomic_facts
+                WHERE user_id=? AND subject=? AND predicate=? AND status='active'
+                ORDER BY timestamp DESC LIMIT 1
+            """, (user_id,subject,predicate)).fetchone()
+
+
+class BM25:
+    def __init__(self):
+        self.docs = []
+        self.doc_tokens = []
+        self.df = Counter()
+        self.avgdl = 0.0
+
+    def fit(self, docs: list[dict]):
+        self.docs = docs
+        self.doc_tokens = [tokenize(d["content"]) for d in docs]
+        self.df = Counter()
+        for ts in self.doc_tokens:
+            for t in set(ts):
+                self.df[t] += 1
+        self.avgdl = sum(map(len,self.doc_tokens)) / max(1,len(self.doc_tokens))
+
+    def search(self, query: str, top_k: int = 30):
+        q = tokenize(query)
+        if not q or not self.docs:
+            return []
+        N = len(self.docs)
+        scores = []
+        k1, b = 1.5, 0.75
+        for i, tokens in enumerate(self.doc_tokens):
+            tf = Counter(tokens)
+            dl = len(tokens)
+            s = 0.0
+            for term in q:
+                if term not in tf:
+                    continue
+                df = self.df.get(term, 0)
+                idf = math.log(1 + (N - df + 0.5) / (df + 0.5))
+                denom = tf[term] + k1 * (1 - b + b * dl / max(self.avgdl,1))
+                s += idf * tf[term] * (k1 + 1) / denom
+            if s > 0:
+                scores.append((i,s))
+        scores.sort(key=lambda x:x[1], reverse=True)
+        return [(self.docs[i], score) for i,score in scores[:top_k]]

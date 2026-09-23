@@ -1,0 +1,35 @@
+from __future__ import annotations
+
+from .store import tokenize
+
+
+class LightweightReranker:
+    """
+    无需下载模型的可解释 fallback。
+    如果以后接入 BGE reranker，只需替换 score 方法。
+    """
+
+    def score(self, query: str, content: str) -> float:
+        q = set(tokenize(query))
+        d = set(tokenize(content))
+        if not q or not d:
+            return 0.0
+        overlap = len(q & d) / len(q)
+        phrase_bonus = 0.0
+        if query.strip() and query.strip() in content:
+            phrase_bonus = 0.35
+        return min(1.0, overlap + phrase_bonus)
+
+    def rerank(self, query, results, top_k):
+        rescored = []
+        for r in results:
+            lexical = self.score(query, r["content"])
+            base = float(r.get("score",0.0))
+            final = 0.55 * lexical + 0.45 * min(1.0, base * 60.0)
+            item = dict(r)
+            item["score"] = round(final, 6)
+            item["metadata"] = dict(item.get("metadata", {}))
+            item["metadata"]["rerank_score"] = round(lexical, 6)
+            rescored.append(item)
+        rescored.sort(key=lambda x:x["score"], reverse=True)
+        return rescored[:top_k]
