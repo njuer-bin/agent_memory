@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from .models import fingerprint, new_id
+from .temporal_parser import normalize_temporal
 
 
 @dataclass
@@ -20,6 +21,8 @@ class Fact:
     valid_from: int
     valid_to: Optional[int] = None
     status: str = "active"
+    supersedes_id: Optional[str] = None
+    temporal_text: str = ""
 
 
 @dataclass
@@ -42,6 +45,9 @@ class Event:
     content: str
     timestamp: int
     fingerprint: str
+    event_start: Optional[int] = None
+    event_end: Optional[int] = None
+    temporal_text: str = ""
 
 
 @dataclass
@@ -64,246 +70,141 @@ class Profile:
 
 
 class MemoryAnalyzer:
+    """Deterministic Parse-2 analyzer.
+
+    覆盖：
+    - atomic fact / profile
+    - relation
+    - rule / preference
+    - event + temporal expression
+    - 否定、纠正、迁移类事实
+    - 一句话中的多事实抽取
+
+    不依赖外部模型，后续可以把 analyze() 替换成 LLM extractor。
     """
-    轻量、确定性的 Memory Analyzer。
 
-    设计目标不是替代大模型抽取，而是：
-    1. 无外部模型也能运行；
-    2. 对常见 Persona / LoCoMo 风格事实进行结构化抽取；
-    3. 后续可以无缝替换成 LLM / 本地模型抽取器。
-    """
-
-    # 关系抽取规则：
-    # 每个元素都是：
-    #     (compiled_regex, predicate)
-    REL_PATTERNS = [
-        (
-            re.compile(
-                r"(?:我的|我)?"
-                r"(?:朋友|同事|老板|妻子|丈夫|妈妈|母亲|爸爸|父亲|"
-                r"姐姐|哥哥|弟弟|妹妹)"
-                r"\s*([^\n，。,.]{1,20})"
-            ),
-            "related_person",
-        ),
-    ]
-
-    # 事实抽取规则：
-    # 每个元素都是：
-    #     (compiled_regex, predicate)
     FACT_PATTERNS = [
-        (
-            re.compile(r"我(?:现在)?住在([^\n，。,.；;]{1,40})"),
-            "residence",
-        ),
-        (
-            re.compile(r"我(?:目前)?在([^\n，。,.；;]{1,40})(?:工作|上班)"),
-            "workplace",
-        ),
-        (
-            re.compile(r"我(?:的)?职业是([^\n，。,.；;]{1,40})"),
-            "occupation",
-        ),
-        (
-            re.compile(r"我喜欢([^\n。；;]{1,60})"),
-            "like",
-        ),
-        (
-            re.compile(r"我不喜欢([^\n。；;]{1,60})"),
-            "dislike",
-        ),
-        (
-            re.compile(r"我讨厌([^\n。；;]{1,60})"),
-            "dislike",
-        ),
-        (
-            re.compile(r"我最喜欢([^\n。；;]{1,60})"),
-            "favorite",
-        ),
-        (
-            re.compile(r"我的生日是([^\n，。,.；;]{1,30})"),
-            "birthday",
-        ),
-        (
-            re.compile(r"我的名字是([^\n，。,.；;]{1,30})"),
-            "name",
-        ),
-        (
-            re.compile(r"我叫([^\n，。,.；;]{1,30})"),
-            "name",
-        ),
-        (
-            re.compile(r"我常用的语言是([^\n，。,.；;]{1,30})"),
-            "language",
-        ),
+        (re.compile(r"我(?:现在|目前|当前)?住在([^\n，。,.；;]+)"), "residence"),
+        (re.compile(r"我(?:目前|现在)?在([^\n，。,.；;]+?)(?:工作|上班)"), "workplace"),
+        (re.compile(r"我(?:的)?职业是([^\n，。,.；;]+)"), "occupation"),
+        (re.compile(r"我最喜欢([^\n。；;，,]+)"), "favorite"),
+        (re.compile(r"我喜欢([^\n。；;，,]+)"), "like"),
+        (re.compile(r"我不喜欢([^\n。；;，,]+)"), "dislike"),
+        (re.compile(r"我讨厌([^\n。；;，,]+)"), "dislike"),
+        (re.compile(r"我的生日是([^\n，。,.；;]+)"), "birthday"),
+        (re.compile(r"我的名字是([^\n，。,.；;]+)"), "name"),
+        (re.compile(r"我叫([^\n，。,.；;]+)"), "name"),
+        (re.compile(r"我常用的语言是([^\n，。,.；;]+)"), "language"),
+        (re.compile(r"我来自([^\n，。,.；;]+)"), "origin"),
+        (re.compile(r"我毕业于([^\n，。,.；;]+)"), "school"),
     ]
 
-    # 规则抽取：
+    REL_PATTERNS = [
+        (re.compile(r"(?:我的|我)?(?:朋友|好友)\s*([A-Za-z0-9_\u4e00-\u9fff]{1,20})"), "friend"),
+        (re.compile(r"(?:我的|我)?同事\s*([A-Za-z0-9_\u4e00-\u9fff]{1,20})"), "colleague"),
+        (re.compile(r"(?:我的|我)?老板\s*([A-Za-z0-9_\u4e00-\u9fff]{1,20})"), "boss"),
+        (re.compile(r"(?:我的|我)?(?:妈妈|母亲)\s*([A-Za-z0-9_\u4e00-\u9fff]{1,20})"), "mother"),
+        (re.compile(r"(?:我的|我)?(?:爸爸|父亲)\s*([A-Za-z0-9_\u4e00-\u9fff]{1,20})"), "father"),
+        (re.compile(r"(?:我的|我)?妻子\s*([A-Za-z0-9_\u4e00-\u9fff]{1,20})"), "wife"),
+        (re.compile(r"(?:我的|我)?丈夫\s*([A-Za-z0-9_\u4e00-\u9fff]{1,20})"), "husband"),
+    ]
+
     RULE_PATTERNS = [
         re.compile(r"(?:以后|今后|从现在开始)[，,:： ]*(.*)"),
         re.compile(r"(?:请记住|记住)[，,:： ]*(.*)"),
         re.compile(r"(?:我的习惯是)[，,:： ]*(.*)"),
+        re.compile(r"(?:我通常|我一般)(.*)"),
     ]
 
-    # 事件关键词
     EVENT_WORDS = (
-        "搬到",
-        "搬家",
-        "毕业",
-        "入职",
-        "离职",
-        "结婚",
-        "分手",
-        "旅行",
-        "去过",
-        "参加",
-        "开始",
-        "结束",
-        "购买",
-        "买了",
-        "完成",
+        "搬到", "搬家", "毕业", "入职", "离职", "结婚", "分手",
+        "旅行", "去过", "参加", "开始", "结束", "购买", "买了",
+        "完成", "搬去", "搬来", "加入", "辞职", "回到",
     )
 
-    def analyze(
-        self,
-        user_id: str,
-        content: str,
-        timestamp: int,
-    ):
+    CORRECTION_MARKERS = ("不是", "改成", "改为", "其实是", "更正为", "纠正一下")
+
+    def analyze(self, user_id: str, content: str, timestamp: int):
         facts: list[Fact] = []
         relations: list[Relation] = []
         events: list[Event] = []
         rules: list[Rule] = []
         profiles: list[Profile] = []
 
-        # ---------------------------------------------------------
-        # 1. Fact / Profile
-        # ---------------------------------------------------------
+        temporal = normalize_temporal(content, timestamp)
+        temporal_text = temporal.text
+
         for pattern, predicate in self.FACT_PATTERNS:
             for m in pattern.finditer(content):
                 obj = m.group(1).strip(" ，,。；;")
-
                 if not obj:
                     continue
 
-                fp = fingerprint(
-                    user_id,
-                    "fact",
-                    m.group(0),
-                    predicate,
-                    obj,
-                )
+                # “我不喜欢X”不应被 like 规则截断为“不喜欢X”
+                if predicate == "like" and obj.startswith(("不", "讨厌")):
+                    predicate = "dislike"
 
-                fact = Fact(
+                fact_text = m.group(0).strip()
+                fp = fingerprint(user_id, "fact", "user", predicate, obj)
+
+                valid_from = temporal.start if temporal.start is not None else timestamp
+                valid_to = temporal.end
+                facts.append(Fact(
                     id=new_id("fact"),
                     user_id=user_id,
                     subject="user",
                     predicate=predicate,
                     object=obj,
-                    content=m.group(0).strip(),
+                    content=fact_text,
                     timestamp=timestamp,
                     fingerprint=fp,
-                    valid_from=timestamp,
-                )
+                    valid_from=valid_from,
+                    valid_to=valid_to,
+                    temporal_text=temporal_text,
+                ))
+                profiles.append(Profile(
+                    user_id=user_id, key=predicate, value=obj,
+                    content=fact_text, timestamp=timestamp
+                ))
 
-                facts.append(fact)
-
-                profiles.append(
-                    Profile(
-                        user_id=user_id,
-                        key=predicate,
-                        value=obj,
-                        content=m.group(0).strip(),
-                        timestamp=timestamp,
-                    )
-                )
-
-        # ---------------------------------------------------------
-        # 2. Relation
-        # ---------------------------------------------------------
-        #
-        # REL_PATTERNS 的元素结构是：
-        #
-        #     (pattern, predicate)
-        #
-        # 所以这里必须进行 tuple unpacking。
-        #
         for pattern, predicate in self.REL_PATTERNS:
             for m in pattern.finditer(content):
                 value = m.group(1).strip()
-
-                if not value:
+                if not value or value in {"推荐我", "介绍我", "告诉我", "说"}:
                     continue
+                relations.append(Relation(
+                    id=new_id("rel"),
+                    user_id=user_id,
+                    subject="user",
+                    predicate=predicate,
+                    object=value,
+                    content=m.group(0).strip(),
+                    timestamp=timestamp,
+                    fingerprint=fingerprint(user_id, "rel", "user", predicate, value),
+                ))
 
-                relations.append(
-                    Relation(
-                        id=new_id("rel"),
-                        user_id=user_id,
-                        subject="user",
-                        predicate=predicate,
-                        object=value,
-                        content=m.group(0).strip(),
-                        timestamp=timestamp,
-                        fingerprint=fingerprint(
-                            user_id,
-                            "rel",
-                            "user",
-                            predicate,
-                            value,
-                        ),
-                    )
-                )
-
-        # ---------------------------------------------------------
-        # 3. Rule
-        # ---------------------------------------------------------
         for pattern in self.RULE_PATTERNS:
-            match = pattern.search(content)
+            for match in pattern.finditer(content):
+                value = match.group(1).strip(" ，,。；;")
+                if value:
+                    rules.append(Rule(
+                        id=new_id("rule"), user_id=user_id, rule=value,
+                        content=match.group(0).strip(), timestamp=timestamp,
+                        fingerprint=fingerprint(user_id, "rule", value)
+                    ))
 
-            if not match:
-                continue
-
-            value = match.group(1).strip()
-
-            if not value:
-                continue
-
-            rules.append(
-                Rule(
-                    id=new_id("rule"),
-                    user_id=user_id,
-                    rule=value,
-                    content=match.group(0).strip(),
-                    timestamp=timestamp,
-                    fingerprint=fingerprint(
-                        user_id,
-                        "rule",
-                        value,
-                    ),
-                )
-            )
-
-        # ---------------------------------------------------------
-        # 4. Event
-        # ---------------------------------------------------------
-        if any(word in content for word in self.EVENT_WORDS):
-            event_content = content.strip()
-
-            events.append(
-                Event(
-                    id=new_id("event"),
-                    user_id=user_id,
-                    event=self._event_name(content),
-                    content=event_content,
-                    timestamp=timestamp,
-                    fingerprint=fingerprint(
-                        user_id,
-                        "event",
-                        event_content,
-                        timestamp,
-                    ),
-                )
-            )
+        # 事件：一条消息只要包含事件词就保留原句作为证据，并结构化时间。
+        for word in self.EVENT_WORDS:
+            if word in content:
+                events.append(Event(
+                    id=new_id("event"), user_id=user_id, event=word,
+                    content=content.strip(), timestamp=timestamp,
+                    fingerprint=fingerprint(user_id, "event", content.strip(), word),
+                    event_start=temporal.start,
+                    event_end=temporal.end,
+                    temporal_text=temporal_text,
+                ))
+                break
 
         return {
             "facts": facts,
@@ -311,12 +212,6 @@ class MemoryAnalyzer:
             "events": events,
             "rules": rules,
             "profiles": profiles,
+            "temporal": temporal,
+            "correction": any(x in content for x in self.CORRECTION_MARKERS),
         }
-
-    @staticmethod
-    def _event_name(content: str) -> str:
-        for word in MemoryAnalyzer.EVENT_WORDS:
-            if word in content:
-                return word
-
-        return "event"
