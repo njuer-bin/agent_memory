@@ -19,6 +19,8 @@ class QueryPlan:
     memory_type_hint: str | None = None
     relation_hint: bool = False
     expanded_query: str = ""
+    predicate_hint: str | None = None
+    intent_hint: str | None = None
 
 
 class QueryAnalyzer:
@@ -53,10 +55,12 @@ class QueryAnalyzer:
             )
         )
         expanded_query = self.expand_query(rewritten, memory_type_hint, relation_hint, info.relation)
+        predicate_hint = self.infer_predicate(q)
+        intent_hint = self.infer_intent(q, memory_type_hint)
         return QueryPlan(
             q, rewritten, multi, keywords, temporal,
             info.start, info.end, info.relation,
-            memory_type_hint, relation_hint, expanded_query
+            memory_type_hint, relation_hint, expanded_query, predicate_hint, intent_hint
         )
 
     @staticmethod
@@ -70,6 +74,34 @@ class QueryAnalyzer:
         if any(x in q for x in ("喜欢", "爱好", "偏好", "不喜欢")):
             return "fact"
         if any(x in q for x in ("住哪里", "住哪", "居住地", "住过")):
+            return "fact"
+        return None
+
+    @staticmethod
+    def infer_predicate(q: str) -> str | None:
+        if any(x in q for x in ("不喜欢", "讨厌", "不爱")):
+            return "dislike"
+        if any(x in q for x in ("喜欢", "偏好", "爱好", "喜爱")):
+            return "like"
+        if any(x in q for x in ("职业", "工作", "从事")):
+            return "occupation"
+        if any(x in q for x in ("住哪里", "住哪", "居住地", "住过", "住址")):
+            return "residence"
+        if "生日" in q or "出生" in q:
+            return "birthday"
+        if any(x in q for x in ("名字", "姓名", "叫")):
+            return "name"
+        return None
+
+    @staticmethod
+    def infer_intent(q: str, memory_type_hint: str | None) -> str | None:
+        if memory_type_hint == "rule":
+            return "habit"
+        if memory_type_hint == "event":
+            return "event"
+        if memory_type_hint == "relation":
+            return "relation"
+        if memory_type_hint == "fact":
             return "fact"
         return None
 
