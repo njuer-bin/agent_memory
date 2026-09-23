@@ -85,7 +85,10 @@ class SQLiteStore:
                 event TEXT NOT NULL,
                 content TEXT NOT NULL,
                 timestamp INTEGER NOT NULL,
-                fingerprint TEXT NOT NULL
+                fingerprint TEXT NOT NULL,
+                event_start INTEGER,
+                event_end INTEGER,
+                temporal_text TEXT
             );
 
             CREATE TABLE IF NOT EXISTS rule_memories (
@@ -123,6 +126,10 @@ class SQLiteStore:
             CREATE INDEX IF NOT EXISTS idx_event_user_time
                 ON timeline_events(user_id, timestamp);
             """)
+            cols = {row[1] for row in c.execute("PRAGMA table_info(timeline_events)").fetchall()}
+            for name, typ in (("event_start", "INTEGER"), ("event_end", "INTEGER"), ("temporal_text", "TEXT")):
+                if name not in cols:
+                    c.execute(f"ALTER TABLE timeline_events ADD COLUMN {name} {typ}")
 
     def request_seen(self, request_id: str) -> bool:
         with self._lock, self.connect() as c:
@@ -193,7 +200,9 @@ class SQLiteStore:
                 INSERT INTO timeline_events
                 (id,user_id,event,content,timestamp,fingerprint)
                 VALUES(?,?,?,?,?,?)
-            """, (e.id,e.user_id,e.event,e.content,e.timestamp,e.fingerprint))
+            """, (e.id,e.user_id,e.event,e.content,e.timestamp,e.fingerprint,
+                  getattr(e, "event_start", None), getattr(e, "event_end", None),
+                  getattr(e, "temporal_text", "")))
 
     def insert_rule(self, r):
         with self._lock, self.connect() as c:
