@@ -100,7 +100,10 @@ class MemoryEngine:
         if not query:
             return []
 
-        plan = self.query_analyzer.analyze(query, request.multi_hop)
+        # 用用户已有最新记忆作为相对时间参考，避免服务当前时间与 benchmark 时间轴不一致。
+        latest = self.store.all_raw(request.user_id)
+        reference_ts = latest[0]["timestamp"] if latest else now_ms()
+        plan = self.query_analyzer.analyze(query, request.multi_hop, reference_ts)
         t0 = time.perf_counter()
 
         candidates = self.hybrid.candidates(
@@ -113,6 +116,15 @@ class MemoryEngine:
             end_time=request.end_time,
             memory_types=request.memory_types,
         )
+
+        # 查询级时间约束：优先使用显式时间窗口；“以前/去年/上个月”等
+        # 会由 QueryAnalyzer 归一化后应用到候选证据。
+        if plan.temporal and (plan.temporal_start is not None or plan.temporal_end is not None):
+            result = [
+                r for r in result
+                if (plan.temporal_start is None or r.get("timestamp", 0) >= plan.temporal_start)
+                and (plan.temporal_end is None or r.get("timestamp", 0) <= plan.temporal_end)
+            ]
 
         result = []
         for d, score in candidates:
