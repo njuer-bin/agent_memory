@@ -18,6 +18,7 @@ class QueryPlan:
     temporal_relation: str = "at"
     memory_type_hint: str | None = None
     relation_hint: bool = False
+    expanded_query: str = ""
 
 
 class QueryAnalyzer:
@@ -51,10 +52,11 @@ class QueryAnalyzer:
                 "朋友", "同事", "推荐", "介绍", "谁和", "关系", "和谁"
             )
         )
+        expanded_query = self.expand_query(rewritten, memory_type_hint, relation_hint, info.relation)
         return QueryPlan(
             q, rewritten, multi, keywords, temporal,
             info.start, info.end, info.relation,
-            memory_type_hint, relation_hint
+            memory_type_hint, relation_hint, expanded_query
         )
 
     @staticmethod
@@ -70,6 +72,31 @@ class QueryAnalyzer:
         if any(x in q for x in ("住哪里", "住哪", "居住地", "住过")):
             return "fact"
         return None
+
+    @staticmethod
+    def expand_query(q: str, memory_type_hint: str | None, relation_hint: bool,
+                      temporal_relation: str) -> str:
+        """仅用于召回阶段的确定性语义扩展；不改变最终回答所依据的原始查询。"""
+        terms = []
+        if memory_type_hint == "rule":
+            terms += ["习惯", "通常", "一般", "经常", "平时", "规则"]
+        elif memory_type_hint == "fact":
+            if any(x in q for x in ("偏好", "喜欢", "爱好", "喜爱", "不喜欢")):
+                terms += ["偏好", "喜欢", "爱好", "喜爱"]
+            if any(x in q for x in ("职业", "工作", "从事")):
+                terms += ["职业", "工作", "从事"]
+            if any(x in q for x in ("住哪里", "住哪", "居住地", "住过")):
+                terms += ["居住地", "住处", "居住", "以前", "曾经", "之前"]
+        elif memory_type_hint == "event":
+            terms += ["事件", "参加", "发生", "经历"]
+        if relation_hint:
+            terms += ["朋友", "好友", "同事", "推荐", "介绍", "关系"]
+        if temporal_relation == "before":
+            terms += ["以前", "之前", "曾经", "历史"]
+        elif temporal_relation == "after":
+            terms += ["后来", "之后"]
+        unique = list(dict.fromkeys(x for x in terms if x not in q))
+        return q if not unique else q + " " + " ".join(unique)
 
     @staticmethod
     def rewrite(q: str) -> str:
