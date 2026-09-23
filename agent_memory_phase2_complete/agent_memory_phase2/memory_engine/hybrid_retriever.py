@@ -106,12 +106,17 @@ class HybridRetriever:
         sparse = bm.search(query, top_k=min(50, len(docs)))
         sparse_rank = {d["id"]: i+1 for i,(d,_) in enumerate(sparse)}
 
+        # Dense retrieval 使用 Add 阶段已经持久化到 SQLite 的向量。
+        # 这里只计算一次 query embedding，不再对每条 memory 重新调用 embedding 服务。
         qv = self.embedder.embed(query)
+        vectors = self.store.embeddings_by_ids(user_id, [d["id"] for d in docs])
         vector_scores = []
         for d in docs:
-            dv = self.embedder.embed(d["content"])
-            s = max(-1.0, min(1.0, cosine(qv,dv)))
-            vector_scores.append((d,s))
+            dv = vectors.get(d["id"])
+            if dv is None:
+                continue
+            s = max(-1.0, min(1.0, cosine(qv, dv)))
+            vector_scores.append((d, s))
         vector_scores.sort(key=lambda x:x[1], reverse=True)
         dense_rank = {d["id"]: i+1 for i,(d,_) in enumerate(vector_scores[:50])}
 
