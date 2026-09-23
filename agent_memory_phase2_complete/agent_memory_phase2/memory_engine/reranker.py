@@ -1,6 +1,13 @@
 from __future__ import annotations
 
+import logging
+import os
+import time
+
 from .store import tokenize
+
+
+logger = logging.getLogger(__name__)
 
 
 class LightweightReranker:
@@ -23,6 +30,7 @@ class LightweightReranker:
     def rerank(self, query, results, top_k, memory_type_hint=None, relation_hint=False,
                temporal_relation="at", expanded_query=None, predicate_hint=None, intent_hint=None):
         rescored = []
+        t0 = time.perf_counter()
         for r in results:
             lexical = self.score(query, r["content"])
             expanded_lexical = self.score(expanded_query or query, r["content"])
@@ -48,4 +56,10 @@ class LightweightReranker:
             item["metadata"]["structured_bonus"] = round(structured, 6)
             rescored.append(item)
         rescored.sort(key=lambda x:x["score"], reverse=True)
+        if os.getenv("MEMORY_PROFILE", "").strip() == "1":
+            logger.info(
+                "RERANK_PROFILE input=%d output=%d elapsed=%.2f",
+                len(results), min(len(rescored), top_k),
+                (time.perf_counter() - t0) * 1000,
+            )
         return rescored[:top_k]
