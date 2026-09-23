@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import logging
+import os
+import time
 from collections import defaultdict
+
+
+logger = logging.getLogger(__name__)
 
 from .store import BM25
 from .vector import cosine
@@ -102,15 +108,21 @@ class HybridRetriever:
         if not docs:
             return []
 
+        t_profile = time.perf_counter()
         bm = BM25()
         bm.fit(docs)
         sparse = bm.search(sparse_query or query, top_k=min(50, len(docs)))
+        bm25_ms = (time.perf_counter() - t_profile) * 1000
         sparse_rank = {d["id"]: i+1 for i,(d,_) in enumerate(sparse)}
 
         # Dense retrieval 使用 Add 阶段已经持久化到 SQLite 的向量。
         # 这里只计算一次 query embedding，不再对每条 memory 重新调用 embedding 服务。
+        t_profile = time.perf_counter()
         qv = self.embedder.embed(query)
+        embedding_ms = (time.perf_counter() - t_profile) * 1000
+        t_profile = time.perf_counter()
         vectors = self.store.embeddings_by_ids(user_id, [d["id"] for d in docs])
+        vector_load_ms = (time.perf_counter() - t_profile) * 1000
         vector_scores = []
         for d in docs:
             dv = vectors.get(d["id"])
@@ -122,6 +134,7 @@ class HybridRetriever:
         dense_rank = {d["id"]: i+1 for i,(d,_) in enumerate(vector_scores[:50])}
 
         # RRF：避免 sparse/dense 的原始分数不可比。
+        t_profile = time.perf_counter()
         rrf_k = 60.0
         merged = defaultdict(float)
         for mid, rank in sparse_rank.items():
@@ -151,4 +164,10 @@ class HybridRetriever:
             structured = score + type_bonus + relation_bonus + predicate_bonus + intent_bonus + active_bonus
             result.append((d, structured))
         result.sort(key=lambda x:x[1], reverse=True)
+        rrf_ms = (time.perf_counter() - t_profile) * 1000
+        if os.getenv("MEMORY_PROFILE", "").strip() == "1":
+            logger.info(
+                "HYBRID_PROFILE docs=%d bm25=%.2f embedding=%.2f vector_load=%.2f rrf=%.2f",
+                len(docs), bm25_ms, embedding_ms, vector_load_ms, rrf_ms,
+            )
         return result[:max(top_k, 30)]
