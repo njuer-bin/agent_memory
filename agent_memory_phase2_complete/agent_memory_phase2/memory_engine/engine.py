@@ -122,8 +122,8 @@ class MemoryEngine:
         if plan.temporal and (plan.temporal_start is not None or plan.temporal_end is not None):
             result = [
                 r for r in result
-                if (plan.temporal_start is None or r.get("timestamp", 0) >= plan.temporal_start)
-                and (plan.temporal_end is None or r.get("timestamp", 0) <= plan.temporal_end)
+                if (plan.temporal_start is None or r.get("valid_from", r.get("timestamp", 0)) >= plan.temporal_start)
+                and (plan.temporal_end is None or r.get("valid_from", r.get("timestamp", 0)) <= plan.temporal_end)
             ]
 
         result = []
