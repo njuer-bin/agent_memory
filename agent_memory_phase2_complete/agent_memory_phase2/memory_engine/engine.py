@@ -115,6 +115,9 @@ class MemoryEngine:
             start_time=request.start_time,
             end_time=request.end_time,
             memory_types=request.memory_types,
+            memory_type_hint=plan.memory_type_hint,
+            temporal_relation=plan.temporal_relation,
+            relation_hint=plan.relation_hint,
         )
 
         result = []
@@ -145,7 +148,14 @@ class MemoryEngine:
                 dedup[key] = r
 
         ranked = list(dedup.values())
-        ranked = self.reranker.rerank(plan.rewritten, ranked, max(request.top_k * 3, request.top_k))
+        ranked = self.reranker.rerank(
+            plan.rewritten,
+            ranked,
+            max(request.top_k * 3, request.top_k),
+            memory_type_hint=plan.memory_type_hint,
+            relation_hint=plan.relation_hint,
+            temporal_relation=plan.temporal_relation,
+        )
         ranked = self.evidence.build(ranked, request.top_k)
 
         # 时间查询的结果顺序：当前有效事实优先；历史查询保留时间信息。
