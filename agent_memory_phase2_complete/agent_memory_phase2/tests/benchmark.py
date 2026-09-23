@@ -71,22 +71,22 @@ def timed_search(user, query, **kwargs):
 def setup(user_a, user_b):
     add(user_a, "我现在住在杭州。", T["old"], "session-a")
     add(user_a, "后来我搬到上海。", T["new"], "session-a")
-    add("bench-a", "我喜欢咖啡。", T["mid"], "session-a")
-    add("bench-a", "我不喜欢太甜的饮料。", T["mid"], "session-a")
-    add("bench-a", "我的朋友小王。", T["mid"], "session-a")
-    add("bench-a", "我的朋友小王推荐我去杭州。", T["mid"], "session-a")
-    add("bench-a", "2024年3月我去了北京参加展会。", T["mid"], "session-a")
-    add("bench-a", "请记住，我通常周末喝咖啡。", T["new"], "session-a")
-    add("bench-a", "我现在住在上海。", T["new"], "session-a")
-    add("bench-a", "我的职业是软件工程师。", T["mid"], "session-a")
-    add("bench-a", "我在南京大学工作。", T["mid"], "session-a")
-    add("bench-a", "我的生日是5月20日。", T["mid"], "session-a")
-    add("bench-a", "我喜欢跑步。", T["mid"], "session-a")
-    add("bench-a", "我不喜欢香菜。", T["mid"], "session-a")
-    add("bench-a", "我的同事小李。", T["mid"], "session-a")
-    add("bench-a", "我的同事小李介绍我认识了小周。", T["mid"], "session-a")
-    add("bench-a", "2024年6月我参加了上海科技展。", T["mid"], "session-a")
-    add("bench-a", "请记住，我一般工作日早上喝咖啡。", T["new"], "session-a")
+    add(user_a, "我喜欢咖啡。", T["mid"], "session-a")
+    add(user_a, "我不喜欢太甜的饮料。", T["mid"], "session-a")
+    add(user_a, "我的朋友小王。", T["mid"], "session-a")
+    add(user_a, "我的朋友小王推荐我去杭州。", T["mid"], "session-a")
+    add(user_a, "2024年3月我去了北京参加展会。", T["mid"], "session-a")
+    add(user_a, "请记住，我通常周末喝咖啡。", T["new"], "session-a")
+    add(user_a, "我现在住在上海。", T["new"], "session-a")
+    add(user_a, "我的职业是软件工程师。", T["mid"], "session-a")
+    add(user_a, "我在南京大学工作。", T["mid"], "session-a")
+    add(user_a, "我的生日是5月20日。", T["mid"], "session-a")
+    add(user_a, "我喜欢跑步。", T["mid"], "session-a")
+    add(user_a, "我不喜欢香菜。", T["mid"], "session-a")
+    add(user_a, "我的同事小李。", T["mid"], "session-a")
+    add(user_a, "我的同事小李介绍我认识了小周。", T["mid"], "session-a")
+    add(user_a, "2024年6月我参加了上海科技展。", T["mid"], "session-a")
+    add(user_a, "请记住，我一般工作日早上喝咖啡。", T["new"], "session-a")
 
     # Cross-user isolation sentinel.
     add(user_b, "我住在深圳。", T["new"], "session-b")
@@ -119,39 +119,39 @@ def main():
     setup(user_a, user_b)
 
     cases = [
-        ("explicit_current_fact", "bench-a", "我现在住哪里？", "上海", {}),
-        ("historical_fact", "bench-a", "我以前住哪里？", "杭州",
+        ("explicit_current_fact", user_a, "我现在住哪里？", "上海", {}),
+        ("historical_fact", user_a, "我以前住哪里？", "杭州",
          {"include_history": True}),
-        ("preference", "bench-a", "我喜欢什么？", "咖啡", {}),
-        ("multi_hop", "bench-a", "朋友推荐的城市是什么？", "杭州",
+        ("preference", user_a, "我喜欢什么？", "咖啡", {}),
+        ("multi_hop", user_a, "朋友推荐的城市是什么？", "杭州",
          {"multi_hop": True}),
-        ("rule", "bench-a", "我的习惯是什么？", "周末喝咖啡", {}),
-        ("event", "bench-a", "我去北京参加了什么？", "北京", {}),
+        ("rule", user_a, "我的习惯是什么？", "周末喝咖啡", {}),
+        ("event", user_a, "我去北京参加了什么？", "北京", {}),
         ("isolation", user_b, "我现在住哪里？", "深圳", {}),
-        ("occupation", "bench-a", "我的职业是什么？", "软件工程师", {}),
-        ("workplace", "bench-a", "我在哪里工作？", "南京大学", {}),
-        ("birthday", "bench-a", "我的生日是什么？", "5月20日", {}),
-        ("like_running", "bench-a", "我喜欢什么运动？", "跑步", {}),
-        ("dislike_cilantro", "bench-a", "我不喜欢什么？", "香菜", {}),
-        ("friend_relation", "bench-a", "我的朋友是谁？", "小王", {}),
-        ("colleague_relation", "bench-a", "我的同事是谁？", "小李", {}),
-        ("recommend_relation", "bench-a", "谁推荐我去杭州？", "小王", {"multi_hop": True}),
-        ("introduced_relation", "bench-a", "谁介绍我认识了小周？", "小李", {"multi_hop": True}),
-        ("event_shanghai", "bench-a", "我参加了什么展会？", "上海科技展", {}),
-        ("habit_weekend", "bench-a", "我通常周末做什么？", "周末喝咖啡", {}),
-        ("habit_weekday", "bench-a", "我的工作日习惯是什么？", "工作日早上喝咖啡", {}),
-        ("current_residence_2", "bench-a", "目前我的居住地是哪里？", "上海", {}),
-        ("history_residence_2", "bench-a", "我之前住在哪个城市？", "杭州", {"include_history": True}),
-        ("history_residence_3", "bench-a", "我过去住哪里？", "杭州", {"include_history": True}),
-        ("preference_coffee", "bench-a", "我的偏好是什么？", "咖啡", {}),
-        ("negative_preference", "bench-a", "哪些饮料我不喜欢？", "太甜", {}),
-        ("event_beijing", "bench-a", "我去北京做了什么？", "参加展会", {}),
-        ("rule_general", "bench-a", "我有哪些习惯？", "通常周末喝咖啡", {}),
-        ("relation_friend", "bench-a", "小王和我是什么关系？", "朋友", {}),
-        ("relation_colleague", "bench-a", "小李和我是什么关系？", "同事", {}),
-        ("temporal_current", "bench-a", "我现在住在哪？", "上海", {}),
-        ("fact_current", "bench-a", "我的当前居住城市是什么？", "上海", {}),
-        ("event_what", "bench-a", "哪次展会和北京有关？", "北京", {}),
+        ("occupation", user_a, "我的职业是什么？", "软件工程师", {}),
+        ("workplace", user_a, "我在哪里工作？", "南京大学", {}),
+        ("birthday", user_a, "我的生日是什么？", "5月20日", {}),
+        ("like_running", user_a, "我喜欢什么运动？", "跑步", {}),
+        ("dislike_cilantro", user_a, "我不喜欢什么？", "香菜", {}),
+        ("friend_relation", user_a, "我的朋友是谁？", "小王", {}),
+        ("colleague_relation", user_a, "我的同事是谁？", "小李", {}),
+        ("recommend_relation", user_a, "谁推荐我去杭州？", "小王", {"multi_hop": True}),
+        ("introduced_relation", user_a, "谁介绍我认识了小周？", "小李", {"multi_hop": True}),
+        ("event_shanghai", user_a, "我参加了什么展会？", "上海科技展", {}),
+        ("habit_weekend", user_a, "我通常周末做什么？", "周末喝咖啡", {}),
+        ("habit_weekday", user_a, "我的工作日习惯是什么？", "工作日早上喝咖啡", {}),
+        ("current_residence_2", user_a, "目前我的居住地是哪里？", "上海", {}),
+        ("history_residence_2", user_a, "我之前住在哪个城市？", "杭州", {"include_history": True}),
+        ("history_residence_3", user_a, "我过去住哪里？", "杭州", {"include_history": True}),
+        ("preference_coffee", user_a, "我的偏好是什么？", "咖啡", {}),
+        ("negative_preference", user_a, "哪些饮料我不喜欢？", "太甜", {}),
+        ("event_beijing", user_a, "我去北京做了什么？", "参加展会", {}),
+        ("rule_general", user_a, "我有哪些习惯？", "通常周末喝咖啡", {}),
+        ("relation_friend", user_a, "小王和我是什么关系？", "朋友", {}),
+        ("relation_colleague", user_a, "小李和我是什么关系？", "同事", {}),
+        ("temporal_current", user_a, "我现在住在哪？", "上海", {}),
+        ("fact_current", user_a, "我的当前居住城市是什么？", "上海", {}),
+        ("event_what", user_a, "哪次展会和北京有关？", "北京", {}),
     ]
 
     rows = []

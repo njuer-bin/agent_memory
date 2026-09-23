@@ -81,8 +81,8 @@ class MemoryEngine:
                     inserted, _ = self.governance.accept_fact(fact)
                     if inserted:
                         fact_vector = self.embedder.embed(fact.content)
-                    self.store.embed(fact.id, request.user_id, fact_vector)
-                    self.vector_index.add(request.user_id, fact.id, fact_vector)
+                        self.store.embed(fact.id, request.user_id, fact_vector)
+                        self.vector_index.add(request.user_id, fact.id, fact_vector)
 
                 for rel in analyzed["relations"]:
                     self.store.insert_relation(rel)
