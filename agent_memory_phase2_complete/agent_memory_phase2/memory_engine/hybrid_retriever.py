@@ -13,7 +13,8 @@ class HybridRetriever:
 
     def candidates(self, user_id, query, top_k=30, include_history=False,
                    session_id=None, start_time=None, end_time=None,
-                   memory_types=None):
+                   memory_types=None, memory_type_hint=None,
+                   temporal_relation="at", relation_hint=False):
         raws = self.store.all_raw(user_id, session_id=session_id)
         if start_time is not None:
             raws = [r for r in raws if r["timestamp"] >= start_time]
@@ -132,9 +133,16 @@ class HybridRetriever:
         result = []
         for mid, score in merged.items():
             d = by_id[mid]
-            # 对当前 active fact 做轻微加权；历史事实除非显式 include_history 不会出现。
+            type_bonus = 0.0
+            if memory_type_hint and d["memory_type"] == memory_type_hint:
+                type_bonus = 0.012
+            relation_bonus = 0.0
+            if relation_hint and d["memory_type"] == "relation":
+                relation_bonus = 0.008
+            active_bonus = 0.0
             if d["memory_type"] == "fact" and d["status"] == "active":
-                score *= 1.05
-            result.append((d,score))
+                active_bonus = 0.005
+            structured = score + type_bonus + relation_bonus + active_bonus
+            result.append((d, structured))
         result.sort(key=lambda x:x[1], reverse=True)
         return result[:max(top_k, 30)]
