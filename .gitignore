@@ -1,0 +1,13 @@
+# sqlite database files
+*.db
+*.db-shm
+*.db-wal
+
+# python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# pycharm
+.idea/
