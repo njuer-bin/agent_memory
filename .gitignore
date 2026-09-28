@@ -1,13 +1,15 @@
-# sqlite database files
-*.db
-*.db-shm
-*.db-wal
+# Runtime state
+data/*.db
+data/*.db-shm
+data/*.db-wal
 
-# python cache
+# Python
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+.pytest_cache/
 
-# pycharm
+# Local tooling
 .idea/
+.vscode/
+.venv/
+venv/
