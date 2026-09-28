@@ -6,9 +6,6 @@ Run with the service already started:
 Optional:
     set BASE_URL=http://127.0.0.1:8000
     set MEMORY_API_KEY=your-secret
-
-The test creates isolated temporary user IDs and does not rely on the
-repository's runtime database contents.
 """
 
 from __future__ import annotations
@@ -48,7 +45,12 @@ def add(content, *, user=USER, request_id=None, messages=None, timestamp=None):
         "session_id": "competition-session",
     })
     assert r.status_code == 200, (r.status_code, r.text)
-    return r.json()
+    body = r.json()
+    assert body["success"] is True
+    assert body["request_id"] == rid
+    assert body["user_id"] == user
+    assert body["session_id"] == "competition-session"
+    return body
 
 
 def search(query, *, user=USER, **extra):
@@ -56,7 +58,10 @@ def search(query, *, user=USER, **extra):
     payload.update(extra)
     r = request("POST", "/search", json=payload)
     assert r.status_code == 200, (r.status_code, r.text)
-    return r.json()["results"]
+    body = r.json()
+    assert set(body) == {"data"}
+    assert all(set(item) == {"id", "content", "score", "created_at"} for item in body["data"])
+    return body["data"]
 
 
 def contains(results, text):
@@ -134,6 +139,9 @@ def test_session_filter():
         "session_id": "session-b",
     })
     assert r.status_code == 200
+    body = r.json()
+    assert body["user_id"] == USER
+    assert body["session_id"] == "session-b"
     results = search("session-a 的记忆", session_id="competition-session")
     assert contains(results, "session-a")
 
@@ -166,9 +174,9 @@ def test_malformed_payloads():
     r = request("POST", "/add", json={"request_id": "bad"})
     assert r.status_code in (400, 422)
 
+    # query and top_k are required by the official AML Search request contract.
     r = request("POST", "/search", json={"user_id": USER})
-    assert r.status_code == 200
-    assert r.json()["results"] == []
+    assert r.status_code == 422
 
 
 def test_add_search_latency():
