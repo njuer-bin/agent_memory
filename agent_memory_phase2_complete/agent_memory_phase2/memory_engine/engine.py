@@ -36,9 +36,20 @@ class MemoryEngine:
         self.evidence = EvidenceBuilder()
 
     def add(self, request):
-        if self.store.request_seen(request.request_id):
+        # Claim request_id atomically before doing any writes. This closes the
+        # check-then-act race between concurrent duplicate Add requests.
+        if not self.store.claim_request(request.request_id, request.user_id):
             return True
 
+        try:
+            return self._add_claimed(request)
+        except Exception:
+            # Do not permanently consume a request_id when the Add operation
+            # fails before completion; the caller can retry safely.
+            self.store.release_request(request.request_id)
+            raise
+
+    def _add_claimed(self, request):
         # 按 20 条消息或约 2000 词做确定性批次边界。
         batches = []
         current = []
@@ -105,8 +116,7 @@ class MemoryEngine:
                 for profile in analyzed["profiles"]:
                     self.store.upsert_profile(profile)
 
-        # 只有所有数据都成功写入并建立索引后才登记 request_id。
-        self.store.register_request(request.request_id, request.user_id)
+        # request_id was already atomically claimed before processing.
         return True
 
     def search(self, request):
