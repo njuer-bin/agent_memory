@@ -133,19 +133,25 @@ class SQLiteStore:
                 if name not in cols:
                     c.execute(f"ALTER TABLE timeline_events ADD COLUMN {name} {typ}")
 
-    def request_seen(self, request_id: str) -> bool:
-        with self._lock, self.connect() as c:
-            return c.execute(
-                "SELECT 1 FROM request_log WHERE request_id=?",
-                (request_id,)
-            ).fetchone() is not None
+    def claim_request(self, request_id: str, user_id: str) -> bool:
+        """Atomically claim a request_id for processing.
 
-    def register_request(self, request_id: str, user_id: str):
+        The previous request_seen() -> register_request() sequence had a
+        check-then-act race: two concurrent Add calls could both pass the
+        check and duplicate the same request. INSERT OR IGNORE makes the
+        claim itself atomic at the SQLite constraint level.
+        """
         with self._lock, self.connect() as c:
-            c.execute(
+            cur = c.execute(
                 "INSERT OR IGNORE INTO request_log(request_id,user_id,created_at) VALUES(?,?,?)",
                 (request_id, user_id, now_ms())
             )
+            return cur.rowcount == 1
+
+    def release_request(self, request_id: str):
+        """Release a failed request so a retry can safely process it."""
+        with self._lock, self.connect() as c:
+            c.execute("DELETE FROM request_log WHERE request_id=?", (request_id,))
 
     def insert_raw(self, row: dict[str, Any]):
         with self._lock, self.connect() as c:
