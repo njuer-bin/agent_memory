@@ -36,16 +36,24 @@ class AddRequest(BaseModel):
 
 
 class AddResponse(BaseModel):
+    # AML Add success contract: return all request identity fields unchanged.
     success: bool
     request_id: str
+    user_id: str
+    session_id: str
 
 
 class SearchRequest(BaseModel):
+    # Keep internal optional controls for local regression tests while matching
+    # the official AML-required fields: query, user_id and top_k.
     model_config = ConfigDict(extra="allow")
-    query: Optional[str] = None
-    question: Optional[str] = None
+    query: str = Field(min_length=1)
     user_id: str = Field(min_length=1)
-    top_k: int = Field(default=10, ge=1, le=100)
+    top_k: int = Field(ge=1, le=100)
+    options: Optional[dict[str, Any]] = None
+
+    # Internal/backward-compatible controls. AML does not need to send these.
+    question: Optional[str] = None
     session_id: Optional[str] = None
     start_time: Optional[int] = None
     end_time: Optional[int] = None
@@ -55,20 +63,13 @@ class SearchRequest(BaseModel):
 
 
 class SearchResult(BaseModel):
+    # Exact public Search result item fields required by AML.
     id: str
     content: str
-    role: str
-    timestamp: int
-    user_id: str
-    session_id: str
     score: float
-    source: str
-    memory_type: str
-    status: str = "active"
-    valid_from: Optional[int] = None
-    valid_to: Optional[int] = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: str
 
 
 class SearchResponse(BaseModel):
-    results: list[SearchResult]
+    # Exact AML Search response envelope.
+    data: list[SearchResult]
