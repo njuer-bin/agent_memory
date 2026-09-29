@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime, timezone
 
-from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Header, HTTPException
 
 from memory_engine.engine import MemoryEngine
 from memory_engine.models import AddRequest, AddResponse, SearchRequest, SearchResponse, SearchResult
@@ -29,6 +29,14 @@ def check_auth(authorization: str | None, x_api_key: str | None):
         raise HTTPException(status_code=401, detail="invalid credentials")
 
 
+def _created_at(timestamp: int) -> str:
+    return (
+        datetime.fromtimestamp(timestamp / 1000.0, tz=timezone.utc)
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z")
+    )
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -43,9 +51,14 @@ def add(
     check_auth(authorization, x_api_key)
     try:
         engine.add(payload)
-        return AddResponse(success=True, request_id=payload.request_id)
+        # AML requires these values to be returned exactly as supplied.
+        return AddResponse(
+            success=True,
+            request_id=payload.request_id,
+            user_id=payload.user_id,
+            session_id=payload.session_id,
+        )
     except Exception as exc:
-        # 保留 traceback，避免只看到 Uvicorn 的 500 而无法定位 Add 阶段错误。
         logger.exception("ADD_FAILED request_id=%s user_id=%s", payload.request_id, payload.user_id)
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -59,8 +72,18 @@ def search(
     check_auth(authorization, x_api_key)
     try:
         rows = engine.search(payload)
-        results = [SearchResult(**r) for r in rows]
-        return SearchResponse(results=results)
+        # Keep the internal engine schema private. AML Search returns only:
+        # id, content, score, created_at, wrapped in {"data": [...]}.
+        results = [
+            SearchResult(
+                id=row["id"],
+                content=row["content"],
+                score=float(row["score"]),
+                created_at=_created_at(int(row.get("timestamp", 0))),
+            )
+            for row in rows
+        ]
+        return SearchResponse(data=results)
     except Exception as exc:
         logger.exception("SEARCH_FAILED user_id=%s", payload.user_id)
         raise HTTPException(status_code=500, detail=str(exc))

@@ -51,7 +51,7 @@ def add(user, content, ts, session):
 def search(user, query, **kwargs):
     payload = {"query": query, "user_id": user, "top_k": TOP_K}
     payload.update(kwargs)
-    return post("/search", payload)["results"]
+    return post("/search", payload)["data"]
 
 
 def rank_of(results, expected):
