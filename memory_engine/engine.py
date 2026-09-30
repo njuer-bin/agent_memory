@@ -84,8 +84,10 @@ class MemoryEngine:
                 self.store.embed(raw_id, request.user_id, raw_vector)
                 self.vector_index.add(request.user_id, raw_id, raw_vector)
 
+                role = (msg.role or "user").strip().lower()
+                source = "system" if role == "system" else ("assistant" if role in {"assistant", "model"} else "user")
                 analyzed = self.analyzer.analyze(
-                    request.user_id, msg.content, ts
+                    request.user_id, msg.content, ts, source=source
                 )
 
                 for fact in analyzed["facts"]:
