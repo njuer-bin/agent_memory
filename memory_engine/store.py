@@ -403,27 +403,57 @@ class SQLiteStore:
                 """, (memory_id,user_id,json.dumps(vector,separators=(",",":"))))
 
     def raw_neighbors(self, user_id: str, source_message_id: str, before: int = 2, after: int = 2):
-        """Return bounded neighboring raw messages around a source message."""
+        """Return bounded neighboring raw messages around a source message.
+
+        The old implementation loaded every raw message in the session and then
+        searched for the anchor in Python. P2 calls this for several anchors per
+        search, so long sessions could turn context expansion into an O(N) scan
+        per anchor. This version lets SQLite select only the bounded neighbors.
+        """
         before = max(0, int(before))
         after = max(0, int(after))
+        if before == 0 and after == 0:
+            return []
+
         with self._lock, self.connect() as c:
             source = c.execute(
-                "SELECT id, session_id FROM raw_memories WHERE user_id=? AND id=? LIMIT 1",
+                "SELECT id, session_id, timestamp FROM raw_memories "
+                "WHERE user_id=? AND id=? LIMIT 1",
                 (user_id, source_message_id),
             ).fetchone()
             if not source:
                 return []
-            rows = c.execute(
-                "SELECT * FROM raw_memories WHERE user_id=? AND session_id=? ORDER BY timestamp ASC, id ASC",
-                (user_id, source["session_id"]),
-            ).fetchall()
-        rows = [dict(r) for r in rows]
-        index = next((i for i, row in enumerate(rows) if row["id"] == source_message_id), None)
-        if index is None:
-            return []
-        lo = max(0, index - before)
-        hi = min(len(rows), index + after + 1)
-        return [row for row in rows[lo:hi] if row["id"] != source_message_id]
+
+            session_id = source["session_id"]
+            timestamp = source["timestamp"]
+
+            # Fetch only the requested number of rows on each side. The id
+            # tie-breaker keeps ordering deterministic when timestamps match.
+            previous = []
+            if before:
+                previous = c.execute(
+                    "SELECT * FROM raw_memories "
+                    "WHERE user_id=? AND session_id=? "
+                    "AND (timestamp < ? OR (timestamp = ? AND id < ?)) "
+                    "ORDER BY timestamp DESC, id DESC LIMIT ?",
+                    (user_id, session_id, timestamp, timestamp, source_message_id, before),
+                ).fetchall()
+
+            following = []
+            if after:
+                following = c.execute(
+                    "SELECT * FROM raw_memories "
+                    "WHERE user_id=? AND session_id=? "
+                    "AND (timestamp > ? OR (timestamp = ? AND id > ?)) "
+                    "ORDER BY timestamp ASC, id ASC LIMIT ?",
+                    (user_id, session_id, timestamp, timestamp, source_message_id, after),
+                ).fetchall()
+
+        # Previous rows are returned in chronological order to preserve the
+        # existing distance semantics used by context expansion.
+        previous = [dict(row) for row in reversed(previous)]
+        following = [dict(row) for row in following]
+        return previous + following
 
     def all_raw(self, user_id: str, session_id: Optional[str] = None):
         sql = "SELECT * FROM raw_memories WHERE user_id=?"
