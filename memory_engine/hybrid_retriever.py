@@ -73,7 +73,7 @@ class HybridRetriever:
                 "metadata": {
                     "event": e["event"],
                     "temporal_text": e.get("temporal_text") or "",
-                    "source_message_id": e.get("source_message_id")},
+                    "source_message_id": e.get("source_message_id"),
                 },
             })
 
