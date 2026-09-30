@@ -214,6 +214,8 @@ class SQLiteStore:
 
             CREATE INDEX IF NOT EXISTS idx_raw_user_time
                 ON raw_memories(user_id, timestamp);
+            CREATE INDEX IF NOT EXISTS idx_raw_session_time
+                ON raw_memories(user_id, session_id, timestamp, id);
             CREATE INDEX IF NOT EXISTS idx_fact_user_status
                 ON atomic_facts(user_id, status);
             CREATE INDEX IF NOT EXISTS idx_fact_key
@@ -254,6 +256,7 @@ class SQLiteStore:
             "CREATE TABLE IF NOT EXISTS user_profiles (user_id TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, content TEXT NOT NULL, timestamp BIGINT NOT NULL, PRIMARY KEY(user_id, key))",
             "CREATE TABLE IF NOT EXISTS embeddings (memory_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, vector TEXT NOT NULL)",
             "CREATE INDEX IF NOT EXISTS idx_raw_user_time ON raw_memories(user_id, timestamp)",
+            "CREATE INDEX IF NOT EXISTS idx_raw_session_time ON raw_memories(user_id, session_id, timestamp, id)",
             "CREATE INDEX IF NOT EXISTS idx_fact_user_status ON atomic_facts(user_id, status)",
             "CREATE INDEX IF NOT EXISTS idx_fact_key ON atomic_facts(user_id, subject, predicate)",
             "CREATE INDEX IF NOT EXISTS idx_rel_user ON entity_relations(user_id)",
