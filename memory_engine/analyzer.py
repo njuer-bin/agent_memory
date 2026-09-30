@@ -23,6 +23,9 @@ class Fact:
     status: str = "active"
     supersedes_id: Optional[str] = None
     temporal_text: str = ""
+    source: str = "user"
+    conflict_status: str = "none"
+    conflict_group_id: Optional[str] = None
 
 
 @dataclass
@@ -124,7 +127,7 @@ class MemoryAnalyzer:
 
     CORRECTION_MARKERS = ("不是", "改成", "改为", "其实是", "更正为", "纠正一下")
 
-    def analyze(self, user_id: str, content: str, timestamp: int):
+    def analyze(self, user_id: str, content: str, timestamp: int, source: str = "user"):
         facts: list[Fact] = []
         relations: list[Relation] = []
         events: list[Event] = []
@@ -162,6 +165,7 @@ class MemoryAnalyzer:
                     valid_from=valid_from,
                     valid_to=valid_to,
                     temporal_text=temporal_text,
+                    source=source,
                 ))
                 profiles.append(Profile(
                     user_id=user_id, key=current_predicate, value=obj,

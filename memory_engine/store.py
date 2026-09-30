@@ -74,7 +74,9 @@ class SQLiteStore:
         def __exit__(self, exc_type, exc, tb):
             if self._pool_context is not None:
                 return self._pool_context.__exit__(exc_type, exc, tb)
-            return self._conn.__exit__(exc_type, exc, tb)
+            result = self._conn.__exit__(exc_type, exc, tb)
+            self._conn.close()
+            return result
         def execute(self, sql, params=None):
             if self._postgres:
                 sql = sql.replace("?", "%s")
@@ -140,7 +142,23 @@ class SQLiteStore:
                 valid_from INTEGER NOT NULL,
                 valid_to INTEGER,
                 status TEXT NOT NULL DEFAULT 'active',
-                supersedes_id TEXT
+                supersedes_id TEXT,
+                source TEXT NOT NULL DEFAULT 'user',
+                conflict_status TEXT NOT NULL DEFAULT 'none',
+                conflict_group_id TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS conflict_logs (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                predicate TEXT NOT NULL,
+                old_fact_id TEXT,
+                new_fact_id TEXT,
+                old_object TEXT,
+                new_object TEXT,
+                resolution TEXT NOT NULL,
+                reason TEXT,
+                created_at INTEGER NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS entity_relations (
@@ -201,12 +219,21 @@ class SQLiteStore:
             CREATE INDEX IF NOT EXISTS idx_event_user_time
                 ON timeline_events(user_id, timestamp);
             """)
+            self._ensure_sqlite_columns(c)
+
+    def _ensure_sqlite_columns(self, c):
+        existing = {row[1] for row in c.execute("PRAGMA table_info(atomic_facts)").fetchall()}
+        wanted = {"source": "TEXT NOT NULL DEFAULT 'user'", "conflict_status": "TEXT NOT NULL DEFAULT 'none'", "conflict_group_id": "TEXT"}
+        for name, definition in wanted.items():
+            if name not in existing:
+                c.execute(f"ALTER TABLE atomic_facts ADD COLUMN {name} {definition}")
 
     def _init_postgres(self):
         statements = [
             "CREATE TABLE IF NOT EXISTS request_log (request_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at BIGINT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS raw_memories (id TEXT PRIMARY KEY, request_id TEXT NOT NULL, user_id TEXT NOT NULL, session_id TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL, timestamp BIGINT NOT NULL, chunk_index INTEGER NOT NULL DEFAULT 0)",
-            "CREATE TABLE IF NOT EXISTS atomic_facts (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, subject TEXT NOT NULL, predicate TEXT NOT NULL, object TEXT NOT NULL, content TEXT NOT NULL, timestamp BIGINT NOT NULL, fingerprint TEXT NOT NULL, valid_from BIGINT NOT NULL, valid_to BIGINT, status TEXT NOT NULL DEFAULT 'active', supersedes_id TEXT)",
+            "CREATE TABLE IF NOT EXISTS atomic_facts (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, subject TEXT NOT NULL, predicate TEXT NOT NULL, object TEXT NOT NULL, content TEXT NOT NULL, timestamp BIGINT NOT NULL, fingerprint TEXT NOT NULL, valid_from BIGINT NOT NULL, valid_to BIGINT, status TEXT NOT NULL DEFAULT 'active', supersedes_id TEXT, source TEXT NOT NULL DEFAULT 'user', conflict_status TEXT NOT NULL DEFAULT 'none', conflict_group_id TEXT)",
+            "CREATE TABLE IF NOT EXISTS conflict_logs (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, predicate TEXT NOT NULL, old_fact_id TEXT, new_fact_id TEXT, old_object TEXT, new_object TEXT, resolution TEXT NOT NULL, reason TEXT, created_at BIGINT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS entity_relations (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, subject TEXT NOT NULL, predicate TEXT NOT NULL, object TEXT NOT NULL, content TEXT NOT NULL, timestamp BIGINT NOT NULL, fingerprint TEXT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS timeline_events (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, event TEXT NOT NULL, content TEXT NOT NULL, timestamp BIGINT NOT NULL, fingerprint TEXT NOT NULL, event_start BIGINT, event_end BIGINT, temporal_text TEXT)",
             "CREATE TABLE IF NOT EXISTS rule_memories (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, rule TEXT NOT NULL, content TEXT NOT NULL, timestamp BIGINT NOT NULL, fingerprint TEXT NOT NULL)",
@@ -221,6 +248,9 @@ class SQLiteStore:
         with self._lock, self.connect() as c:
             for statement in statements:
                 c.execute(statement)
+            c.execute("ALTER TABLE atomic_facts ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'user'")
+            c.execute("ALTER TABLE atomic_facts ADD COLUMN IF NOT EXISTS conflict_status TEXT NOT NULL DEFAULT 'none'")
+            c.execute("ALTER TABLE atomic_facts ADD COLUMN IF NOT EXISTS conflict_group_id TEXT")
 
     def claim_request(self, request_id: str, user_id: str) -> bool:
         """Atomically claim a request_id for processing.
@@ -258,13 +288,34 @@ class SQLiteStore:
             c.execute("""
                 INSERT INTO atomic_facts
                 (id,user_id,subject,predicate,object,content,timestamp,fingerprint,
-                 valid_from,valid_to,status,supersedes_id)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+                 valid_from,valid_to,status,supersedes_id,source,conflict_status,conflict_group_id)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """, (
                 f.id, f.user_id, f.subject, f.predicate, f.object, f.content,
                 f.timestamp, f.fingerprint, f.valid_from, f.valid_to,
-                f.status, getattr(f, "supersedes_id", None)
+                f.status, getattr(f, "supersedes_id", None),
+                getattr(f, "source", "user"), getattr(f, "conflict_status", "none"),
+                getattr(f, "conflict_group_id", None)
             ))
+
+    def insert_conflict_log(self, row: dict[str, Any]):
+        with self._lock, self.connect() as c:
+            c.execute("""
+                INSERT INTO conflict_logs
+                (id,user_id,predicate,old_fact_id,new_fact_id,old_object,new_object,resolution,reason,created_at)
+                VALUES(?,?,?,?,?,?,?,?,?,?)
+            """, (
+                row["id"], row["user_id"], row["predicate"], row.get("old_fact_id"),
+                row.get("new_fact_id"), row.get("old_object"), row.get("new_object"),
+                row["resolution"], row.get("reason"), row.get("created_at", now_ms()),
+            ))
+
+    def conflict_logs(self, user_id: str):
+        with self._lock, self.connect() as c:
+            return [dict(r) for r in c.execute(
+                "SELECT * FROM conflict_logs WHERE user_id=? ORDER BY created_at DESC",
+                (user_id,)
+            ).fetchall()]
 
     def find_same_relation(self, user_id, subject, predicate, object_):
         with self._lock, self.connect() as c:

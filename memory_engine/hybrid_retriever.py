@@ -22,7 +22,8 @@ class HybridRetriever:
     def candidates(self, user_id, query, top_k=30, include_history=False,
                    session_id=None, start_time=None, end_time=None,
                    memory_types=None, memory_type_hint=None,
-                   temporal_relation="at", relation_hint=False, sparse_query=None, predicate_hint=None, intent_hint=None):
+                   temporal_relation="at", relation_hint=False, sparse_query=None, predicate_hint=None, intent_hint=None,
+                   use_dense=True):
         raws = self.store.all_raw(user_id, session_id=session_id)
         if start_time is not None:
             raws = [r for r in raws if r["timestamp"] >= start_time]
@@ -54,7 +55,10 @@ class HybridRetriever:
                 "status": f["status"], "source": "atomic_fact",
                 "valid_from": f["valid_from"], "valid_to": f["valid_to"],
                 "metadata": {"subject":f["subject"],"predicate":f["predicate"],
-                             "object":f["object"],"supersedes_id":f["supersedes_id"]},
+                             "object":f["object"],"supersedes_id":f["supersedes_id"],
+                             "source":f.get("source", "user"),
+                             "conflict_status":f.get("conflict_status", "none"),
+                             "conflict_group_id":f.get("conflict_group_id")},
             })
 
         for e in events:
@@ -118,22 +122,24 @@ class HybridRetriever:
         sparse_rank = {d["id"]: i+1 for i,(d,_) in enumerate(sparse)}
 
         # Dense retrieval:
-        # 1) query 只调用一次 embedding；
-        # 2) 文档向量由进程级 MemoryVectorIndex 常驻内存；
-        # 3) SQLite 仅作为持久化源，避免每次 Search JSON-decode 数百条向量。
-        t_profile = time.perf_counter()
-        qv = self.embedder.embed(query)
-        embedding_ms = (time.perf_counter() - t_profile) * 1000
+        # 第一轮默认 dense+BM25；第二轮可选择 BM25-only，避免再次调用 embedding。
+        embedding_ms = 0.0
+        vector_load_ms = 0.0
+        dense_rank = {}
+        if use_dense:
+            t_profile = time.perf_counter()
+            qv = self.embedder.embed(query)
+            embedding_ms = (time.perf_counter() - t_profile) * 1000
 
-        t_profile = time.perf_counter()
-        dense_pairs = self.vector_index.search(
-            user_id,
-            qv,
-            ids=[d["id"] for d in docs],
-            top_k=min(50, len(docs)),
-        )
-        vector_load_ms = (time.perf_counter() - t_profile) * 1000
-        dense_rank = {mid: i + 1 for i, (mid, _) in enumerate(dense_pairs)}
+            t_profile = time.perf_counter()
+            dense_pairs = self.vector_index.search(
+                user_id,
+                qv,
+                ids=[d["id"] for d in docs],
+                top_k=min(50, len(docs)),
+            )
+            vector_load_ms = (time.perf_counter() - t_profile) * 1000
+            dense_rank = {mid: i + 1 for i, (mid, _) in enumerate(dense_pairs)}
 
         # RRF：避免 sparse/dense 的原始分数不可比。
         t_profile = time.perf_counter()
@@ -163,7 +169,10 @@ class HybridRetriever:
             active_bonus = 0.0
             if d["memory_type"] == "fact" and d["status"] == "active":
                 active_bonus = 0.005
-            structured = score + type_bonus + relation_bonus + predicate_bonus + intent_bonus + active_bonus
+            conflict_penalty = 0.0
+            if d["memory_type"] == "fact" and d.get("metadata", {}).get("conflict_status") == "conflict":
+                conflict_penalty = -0.020
+            structured = score + type_bonus + relation_bonus + predicate_bonus + intent_bonus + active_bonus + conflict_penalty
             result.append((d, structured))
         result.sort(key=lambda x:x[1], reverse=True)
         rrf_ms = (time.perf_counter() - t_profile) * 1000
