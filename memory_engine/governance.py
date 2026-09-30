@@ -37,7 +37,7 @@ class MemoryGovernance:
             # user > system > assistant。低权威来源不能静默覆盖用户事实，
             # 但仍保留为可审计的冲突证据。
             priority = {"assistant": 1, "system": 2, "user": 3}
-            current_source = current.get("source", "user")
+            current_source = current["source"] if "source" in current.keys() else "user"
             new_source = getattr(fact, "source", "user")
             current_priority = priority.get(current_source, 1)
             new_priority = priority.get(new_source, 1)
