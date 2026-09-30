@@ -87,7 +87,8 @@ class MemoryEngine:
                 role = (msg.role or "user").strip().lower()
                 source = "system" if role == "system" else ("assistant" if role in {"assistant", "model"} else "user")
                 analyzed = self.analyzer.analyze(
-                    request.user_id, msg.content, ts, source=source
+                    request.user_id, msg.content, ts, source=source,
+                    source_message_id=raw_id,
                 )
 
                 for fact in analyzed["facts"]:
@@ -170,6 +171,63 @@ class MemoryEngine:
                 if (plan.temporal_start is None or r.get("valid_from", r.get("timestamp", 0)) >= plan.temporal_start)
                 and (plan.temporal_end is None or r.get("valid_from", r.get("timestamp", 0)) <= plan.temporal_end)
             ]
+
+        # P2：邻近上下文扩展。结构化记忆命中后，根据 source_message_id
+        # 回溯同一会话的原始邻居，再交给统一 reranker，补足分散在相邻消息中的证据。
+        context_expansion_ms = 0.0
+        if result:
+            t0 = time.perf_counter()
+            try:
+                before = max(0, int(os.getenv("MEMORY_CONTEXT_BEFORE", "2")))
+                after = max(0, int(os.getenv("MEMORY_CONTEXT_AFTER", "2")))
+            except ValueError:
+                before, after = 2, 2
+            expanded_ids = set()
+            for anchor in result[:5]:
+                if anchor.get("memory_type") == "raw":
+                    continue
+                source_message_id = (anchor.get("metadata") or {}).get("source_message_id")
+                if not source_message_id:
+                    continue
+                neighbors = self.store.raw_neighbors(
+                    request.user_id,
+                    source_message_id,
+                    before=before,
+                    after=after,
+                )
+                for distance, raw in enumerate(neighbors, start=1):
+                    if request.start_time is not None and raw["timestamp"] < request.start_time:
+                        continue
+                    if request.end_time is not None and raw["timestamp"] > request.end_time:
+                        continue
+                    if raw["id"] in expanded_ids or any(x.get("id") == raw["id"] for x in result):
+                        continue
+                    # 邻居只作为 evidence candidate，不与原始 anchor 争夺同等检索权重。
+                    decay = 0.82 ** min(distance, 4)
+                    result.append({
+                        "id": raw["id"],
+                        "content": raw["content"],
+                        "role": raw["role"],
+                        "timestamp": raw["timestamp"],
+                        "user_id": request.user_id,
+                        "session_id": raw["session_id"],
+                        "memory_type": "raw",
+                        "status": "active",
+                        "source": "context_expansion",
+                        "valid_from": raw["timestamp"],
+                        "valid_to": None,
+                        "metadata": {
+                            "request_id": raw["request_id"],
+                            "source_message_id": raw["id"],
+                            "context_expanded": True,
+                            "context_anchor_id": anchor["id"],
+                            "context_distance": distance,
+                            "context_decay": round(decay, 6),
+                        },
+                        "score": float(anchor.get("score", 0.0)) * decay,
+                    })
+                    expanded_ids.add(raw["id"])
+            context_expansion_ms = (time.perf_counter() - t0) * 1000
 
         # P1：受控两轮检索。仅对多跳查询启用：第一轮先找锚点实体，
         # 第二轮用锚点做 BM25-only 扩展，避免再次调用 embedding。
@@ -254,8 +312,8 @@ class MemoryEngine:
         if os.getenv("MEMORY_PROFILE", "").strip() == "1":
             logger.info(
                 "SEARCH_PROFILE query=%r total=%.2f latest=%.2f analyze=%.2f hybrid=%.2f "
-                "second_round=%.2f graph=%.2f rerank=%.2f evidence=%.2f candidates=%d final=%d",
-                query, total_ms, latest_ms, analyze_ms, hybrid_ms, second_round_ms, graph_ms,
+                "second_round=%.2f context_expansion=%.2f graph=%.2f rerank=%.2f evidence=%.2f candidates=%d final=%d",
+                query, total_ms, latest_ms, analyze_ms, hybrid_ms, second_round_ms, context_expansion_ms, graph_ms,
                 rerank_ms, evidence_ms, len(candidates), len(ranked),
             )
         return ranked[:request.top_k]
