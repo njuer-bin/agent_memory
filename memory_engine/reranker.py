@@ -152,6 +152,16 @@ class LightweightReranker:
             if mt == "fact" and r.get("status") == "active":
                 structured += 0.03
 
+            # P2：邻近上下文是“补全证据”，不是新的独立事实。
+            # 给扩展出的原始消息一个小幅、随距离衰减的结构化加分，
+            # 让与命中锚点相邻的上下文在最终 Top-K 中不容易被 reranker 丢掉。
+            if metadata.get("context_expanded"):
+                try:
+                    context_decay = float(metadata.get("context_decay", 0.0))
+                except (TypeError, ValueError):
+                    context_decay = 0.0
+                structured += 0.06 * max(0.0, min(1.0, context_decay))
+
             structured = max(-0.1, min(0.5, structured))
 
             # RRF 负责高召回，reranker 更强调“真正回答问题的文本”。
