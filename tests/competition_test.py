@@ -27,6 +27,16 @@ OTHER = f"competition-other-{RUN}"
 
 def request(method, path, **kwargs):
     kwargs.setdefault("timeout", TIMEOUT)
+
+    # Public Render deployments require authentication for /add and /search.
+    # Automatically attach the configured key to normal test requests while
+    # still allowing individual tests to override headers explicitly.
+    headers = dict(kwargs.pop("headers", {}) or {})
+    if API_KEY:
+        headers.setdefault("X-API-Key", API_KEY)
+    if headers:
+        kwargs["headers"] = headers
+
     return requests.request(method, BASE + path, **kwargs)
 
 
