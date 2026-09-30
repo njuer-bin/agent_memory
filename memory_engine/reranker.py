@@ -16,16 +16,63 @@ class LightweightReranker:
     如果以后接入 BGE reranker，只需替换 score 方法。
     """
 
+    QUERY_STOPWORDS = {
+        "我", "我的", "你", "你的", "他", "她", "它", "我们",
+        "是", "什么", "哪个", "哪些", "哪里", "哪", "怎么",
+        "如何", "吗", "呢", "啊", "呀", "请问",
+    }
+
+    @classmethod
+    def _tokens(cls, text: str) -> set[str]:
+        return {
+            token for token in tokenize(text)
+            if token not in cls.QUERY_STOPWORDS
+        }
+
+    @staticmethod
+    def _ngrams(text: str, min_n: int = 2, max_n: int = 4) -> set[str]:
+        tokens = tokenize(text)
+        if len(tokens) < min_n:
+            return set()
+        grams = set()
+        for n in range(min_n, min(max_n, len(tokens)) + 1):
+            grams.update(
+                "".join(tokens[i:i + n])
+                for i in range(len(tokens) - n + 1)
+            )
+        return grams
+
     def score(self, query: str, content: str) -> float:
-        q = set(tokenize(query))
-        d = set(tokenize(content))
+        q = self._tokens(query)
+        d = self._tokens(content)
         if not q or not d:
             return 0.0
+
         overlap = len(q & d) / len(q)
-        phrase_bonus = 0.0
-        if query.strip() and query.strip() in content:
-            phrase_bonus = 0.35
-        return min(1.0, overlap + phrase_bonus)
+
+        # 中文短语重合对自然语言问题很重要，可以区分
+        # “喜欢杭州”和“周末喜欢吃火锅”这类仅共享“喜欢”的候选。
+        q_grams = self._ngrams(query)
+        d_grams = self._ngrams(content)
+        phrase_overlap = (
+            len(q_grams & d_grams) / len(q_grams)
+            if q_grams else 0.0
+        )
+
+        normalized_query = "".join(tokenize(query))
+        normalized_content = "".join(tokenize(content))
+        exact_phrase = (
+            0.35
+            if normalized_query and normalized_query in normalized_content
+            else 0.0
+        )
+
+        return min(
+            1.0,
+            0.60 * overlap
+            + 0.40 * phrase_overlap
+            + exact_phrase,
+        )
 
     def rerank(
             self,
@@ -107,11 +154,11 @@ class LightweightReranker:
 
             structured = max(-0.1, min(0.5, structured))
 
-            # 综合得分
+            # RRF 负责高召回，reranker 更强调“真正回答问题的文本”。
             final = (
-                    0.45 * lexical_signal
-                    + 0.35 * retrieval_signal
-                    + 0.20 * max(0.0, structured)
+                    0.52 * lexical_signal
+                    + 0.33 * retrieval_signal
+                    + 0.15 * max(0.0, structured)
             )
 
             item = dict(r)
