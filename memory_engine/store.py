@@ -71,6 +71,9 @@ class SQLiteStore:
         return self._CompatConnection(conn, postgres=False)
 
     def _init_db(self):
+        if self.database_url:
+            self._init_postgres()
+            return
         with self._lock, self.connect() as c:
             c.executescript("""
             PRAGMA journal_mode=WAL;
@@ -169,6 +172,26 @@ class SQLiteStore:
             for name, typ in (("event_start", "INTEGER"), ("event_end", "INTEGER"), ("temporal_text", "TEXT")):
                 if name not in cols:
                     c.execute(f"ALTER TABLE timeline_events ADD COLUMN {name} {typ}")
+
+    def _init_postgres(self):
+        statements = [
+            "CREATE TABLE IF NOT EXISTS request_log (request_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at BIGINT NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS raw_memories (id TEXT PRIMARY KEY, request_id TEXT NOT NULL, user_id TEXT NOT NULL, session_id TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL, timestamp BIGINT NOT NULL, chunk_index INTEGER NOT NULL DEFAULT 0)",
+            "CREATE TABLE IF NOT EXISTS atomic_facts (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, subject TEXT NOT NULL, predicate TEXT NOT NULL, object TEXT NOT NULL, content TEXT NOT NULL, timestamp BIGINT NOT NULL, fingerprint TEXT NOT NULL, valid_from BIGINT NOT NULL, valid_to BIGINT, status TEXT NOT NULL DEFAULT 'active', supersedes_id TEXT)",
+            "CREATE TABLE IF NOT EXISTS entity_relations (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, subject TEXT NOT NULL, predicate TEXT NOT NULL, object TEXT NOT NULL, content TEXT NOT NULL, timestamp BIGINT NOT NULL, fingerprint TEXT NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS timeline_events (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, event TEXT NOT NULL, content TEXT NOT NULL, timestamp BIGINT NOT NULL, fingerprint TEXT NOT NULL, event_start BIGINT, event_end BIGINT, temporal_text TEXT)",
+            "CREATE TABLE IF NOT EXISTS rule_memories (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, rule TEXT NOT NULL, content TEXT NOT NULL, timestamp BIGINT NOT NULL, fingerprint TEXT NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS user_profiles (user_id TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, content TEXT NOT NULL, timestamp BIGINT NOT NULL, PRIMARY KEY(user_id, key))",
+            "CREATE TABLE IF NOT EXISTS embeddings (memory_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, vector TEXT NOT NULL)",
+            "CREATE INDEX IF NOT EXISTS idx_raw_user_time ON raw_memories(user_id, timestamp)",
+            "CREATE INDEX IF NOT EXISTS idx_fact_user_status ON atomic_facts(user_id, status)",
+            "CREATE INDEX IF NOT EXISTS idx_fact_key ON atomic_facts(user_id, subject, predicate)",
+            "CREATE INDEX IF NOT EXISTS idx_rel_user ON entity_relations(user_id)",
+            "CREATE INDEX IF NOT EXISTS idx_event_user_time ON timeline_events(user_id, timestamp)"
+        ]
+        with self._lock, self.connect() as c:
+            for statement in statements:
+                c.execute(statement)
 
     def claim_request(self, request_id: str, user_id: str) -> bool:
         """Atomically claim a request_id for processing.
