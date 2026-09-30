@@ -29,8 +29,10 @@ def tokenize(text: str) -> list[str]:
 
 class SQLiteStore:
     def __init__(self, path: str = "data/memory.db"):
+        self.database_url = os.getenv("DATABASE_URL", "").strip()
         self.path = path
-        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        if not self.database_url:
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         # 进程内 embedding cache：Add 写入时同步更新，Search 优先命中内存。
         self._embedding_cache: dict[str, dict[str, list[float]]] = defaultdict(dict)
