@@ -9,9 +9,11 @@ import sqlite3
 try:
     import psycopg
     from psycopg.rows import dict_row
+    from psycopg_pool import ConnectionPool
 except ImportError:
     psycopg = None
     dict_row = None
+    ConnectionPool = None
 import threading
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -34,18 +36,44 @@ class SQLiteStore:
         if not self.database_url:
             Path(path).parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        # PostgreSQL/Supabase: reuse a small pool instead of opening a brand-new
+        # TCP/TLS/database connection for every individual write. The Add path
+        # performs several writes per message, so connection setup dominates
+        # latency on hosted PostgreSQL.
+        self._pool = None
+        if self.database_url:
+            if ConnectionPool is None:
+                raise RuntimeError(
+                    "DATABASE_URL is set but psycopg[pool] is not installed"
+                )
+            self._pool = ConnectionPool(
+                self.database_url,
+                kwargs={"row_factory": dict_row},
+                min_size=1,
+                max_size=4,
+                open=True,
+                timeout=10,
+            )
         # 进程内 embedding cache：Add 写入时同步更新，Search 优先命中内存。
         self._embedding_cache: dict[str, dict[str, list[float]]] = defaultdict(dict)
         self._init_db()
 
     class _CompatConnection:
-        def __init__(self, conn, postgres=False):
+        def __init__(self, conn=None, postgres=False, pool_context=None):
             self._conn = conn
             self._postgres = postgres
+            self._pool_context = pool_context
+
         def __enter__(self):
-            self._conn.__enter__()
+            if self._pool_context is not None:
+                self._conn = self._pool_context.__enter__()
+            else:
+                self._conn.__enter__()
             return self
+
         def __exit__(self, exc_type, exc, tb):
+            if self._pool_context is not None:
+                return self._pool_context.__exit__(exc_type, exc, tb)
             return self._conn.__exit__(exc_type, exc, tb)
         def execute(self, sql, params=None):
             if self._postgres:
@@ -64,6 +92,11 @@ class SQLiteStore:
         if self.database_url:
             if psycopg is None:
                 raise RuntimeError("DATABASE_URL is set but psycopg is not installed")
+            if self._pool is not None:
+                return self._CompatConnection(
+                    postgres=True,
+                    pool_context=self._pool.connection(),
+                )
             conn = psycopg.connect(self.database_url, row_factory=dict_row)
             return self._CompatConnection(conn, postgres=True)
         conn = sqlite3.connect(self.path, check_same_thread=False)
