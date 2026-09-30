@@ -166,7 +166,10 @@ class HybridRetriever:
             active_bonus = 0.0
             if d["memory_type"] == "fact" and d["status"] == "active":
                 active_bonus = 0.005
-            structured = score + type_bonus + relation_bonus + predicate_bonus + intent_bonus + active_bonus
+            conflict_penalty = 0.0
+            if d["memory_type"] == "fact" and d.get("metadata", {}).get("conflict_status") == "conflict":
+                conflict_penalty = -0.020
+            structured = score + type_bonus + relation_bonus + predicate_bonus + intent_bonus + active_bonus + conflict_penalty
             result.append((d, structured))
         result.sort(key=lambda x:x[1], reverse=True)
         rrf_ms = (time.perf_counter() - t_profile) * 1000
