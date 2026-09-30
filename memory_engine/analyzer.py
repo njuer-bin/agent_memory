@@ -26,6 +26,7 @@ class Fact:
     source: str = "user"
     conflict_status: str = "none"
     conflict_group_id: Optional[str] = None
+    source_message_id: Optional[str] = None
 
 
 @dataclass
@@ -38,6 +39,7 @@ class Relation:
     content: str
     timestamp: int
     fingerprint: str
+    source_message_id: Optional[str] = None
 
 
 @dataclass
@@ -51,6 +53,7 @@ class Event:
     event_start: Optional[int] = None
     event_end: Optional[int] = None
     temporal_text: str = ""
+    source_message_id: Optional[str] = None
 
 
 @dataclass
@@ -61,6 +64,7 @@ class Rule:
     content: str
     timestamp: int
     fingerprint: str
+    source_message_id: Optional[str] = None
 
 
 @dataclass
@@ -127,7 +131,7 @@ class MemoryAnalyzer:
 
     CORRECTION_MARKERS = ("不是", "改成", "改为", "其实是", "更正为", "纠正一下")
 
-    def analyze(self, user_id: str, content: str, timestamp: int, source: str = "user"):
+    def analyze(self, user_id: str, content: str, timestamp: int, source: str = "user", source_message_id: Optional[str] = None):
         facts: list[Fact] = []
         relations: list[Relation] = []
         events: list[Event] = []
@@ -166,6 +170,7 @@ class MemoryAnalyzer:
                     valid_to=valid_to,
                     temporal_text=temporal_text,
                     source=source,
+                    source_message_id=source_message_id,
                 ))
                 profiles.append(Profile(
                     user_id=user_id, key=current_predicate, value=obj,
@@ -186,6 +191,7 @@ class MemoryAnalyzer:
                     content=m.group(0).strip(),
                     timestamp=timestamp,
                     fingerprint=fingerprint(user_id, "rel", "user", predicate, value),
+                    source_message_id=source_message_id,
                 ))
 
         for pattern in self.RULE_PATTERNS:
@@ -195,7 +201,8 @@ class MemoryAnalyzer:
                     rules.append(Rule(
                         id=new_id("rule"), user_id=user_id, rule=value,
                         content=match.group(0).strip(), timestamp=timestamp,
-                        fingerprint=fingerprint(user_id, "rule", value)
+                        fingerprint=fingerprint(user_id, "rule", value),
+                        source_message_id=source_message_id,
                     ))
 
         # 事件：一条消息只要包含事件词就保留原句作为证据，并结构化时间。
@@ -208,6 +215,7 @@ class MemoryAnalyzer:
                     event_start=temporal.start,
                     event_end=temporal.end,
                     temporal_text=temporal_text,
+                    source_message_id=source_message_id,
                 ))
                 break
 
