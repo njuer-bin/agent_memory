@@ -6,7 +6,14 @@ Run:
 
 from __future__ import annotations
 
+import pathlib
+import sys
 import tempfile
+
+# Allow direct execution via `python tests\\p1_test.py` from the repository root.
+ROOT = pathlib.Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from memory_engine.engine import MemoryEngine
 from memory_engine.models import AddRequest, AddMessage, SearchRequest
