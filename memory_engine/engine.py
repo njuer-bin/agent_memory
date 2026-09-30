@@ -200,10 +200,29 @@ class MemoryEngine:
                         continue
                     if request.end_time is not None and raw["timestamp"] > request.end_time:
                         continue
-                    if raw["id"] in expanded_ids or any(x.get("id") == raw["id"] for x in result):
+                    if raw["id"] in expanded_ids:
                         continue
-                    # 邻居只作为 evidence candidate，不与原始 anchor 争夺同等检索权重。
+                    # 邻居可能已经进入第一轮候选集。此时不重复添加，而是给原候选打上
+                    # context-expanded provenance；如果尚未出现，则追加一个衰减后的候选。
                     decay = 0.82 ** min(distance, 4)
+                    existing = next((x for x in result if x.get("id") == raw["id"]), None)
+                    if existing is not None:
+                        metadata = dict(existing.get("metadata") or {})
+                        metadata.update({
+                            "context_expanded": True,
+                            "context_anchor_id": anchor["id"],
+                            "context_distance": distance,
+                            "context_decay": round(decay, 6),
+                            "source_message_id": raw["id"],
+                        })
+                        existing["metadata"] = metadata
+                        existing["source"] = "context_expansion"
+                        existing["score"] = max(
+                            float(existing.get("score", 0.0)),
+                            float(anchor.get("score", 0.0)) * decay,
+                        )
+                        expanded_ids.add(raw["id"])
+                        continue
                     result.append({
                         "id": raw["id"],
                         "content": raw["content"],
