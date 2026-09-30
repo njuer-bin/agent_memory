@@ -38,10 +38,37 @@ class SQLiteStore:
         self._embedding_cache: dict[str, dict[str, list[float]]] = defaultdict(dict)
         self._init_db()
 
+    class _CompatConnection:
+        def __init__(self, conn, postgres=False):
+            self._conn = conn
+            self._postgres = postgres
+        def __enter__(self):
+            self._conn.__enter__()
+            return self
+        def __exit__(self, exc_type, exc, tb):
+            return self._conn.__exit__(exc_type, exc, tb)
+        def execute(self, sql, params=None):
+            if self._postgres:
+                sql = sql.replace("?", "%s")
+            return self._conn.execute(sql, params or ())
+        def executescript(self, sql):
+            if self._postgres:
+                for statement in sql.split(";"):
+                    statement = statement.strip()
+                    if statement:
+                        self._conn.execute(statement)
+            else:
+                return self._conn.executescript(sql)
+
     def connect(self):
+        if self.database_url:
+            if psycopg is None:
+                raise RuntimeError("DATABASE_URL is set but psycopg is not installed")
+            conn = psycopg.connect(self.database_url, row_factory=dict_row)
+            return self._CompatConnection(conn, postgres=True)
         conn = sqlite3.connect(self.path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
-        return conn
+        return self._CompatConnection(conn, postgres=False)
 
     def _init_db(self):
         with self._lock, self.connect() as c:
