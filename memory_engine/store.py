@@ -227,10 +227,20 @@ class SQLiteStore:
 
     def _ensure_sqlite_columns(self, c):
         existing = {row[1] for row in c.execute("PRAGMA table_info(atomic_facts)").fetchall()}
-        wanted = {"source": "TEXT NOT NULL DEFAULT 'user'", "conflict_status": "TEXT NOT NULL DEFAULT 'none'", "conflict_group_id": "TEXT", "source_message_id": "TEXT"}
+        wanted = {
+            "source": "TEXT NOT NULL DEFAULT 'user'",
+            "conflict_status": "TEXT NOT NULL DEFAULT 'none'",
+            "conflict_group_id": "TEXT",
+            "source_message_id": "TEXT",
+        }
         for name, definition in wanted.items():
             if name not in existing:
                 c.execute(f"ALTER TABLE atomic_facts ADD COLUMN {name} {definition}")
+
+        for table in ("entity_relations", "timeline_events", "rule_memories"):
+            columns = {row[1] for row in c.execute(f"PRAGMA table_info({table})").fetchall()}
+            if "source_message_id" not in columns:
+                c.execute(f"ALTER TABLE {table} ADD COLUMN source_message_id TEXT")
 
     def _init_postgres(self):
         statements = [
