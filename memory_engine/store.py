@@ -246,6 +246,9 @@ class SQLiteStore:
         with self._lock, self.connect() as c:
             for statement in statements:
                 c.execute(statement)
+            c.execute("ALTER TABLE atomic_facts ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'user'")
+            c.execute("ALTER TABLE atomic_facts ADD COLUMN IF NOT EXISTS conflict_status TEXT NOT NULL DEFAULT 'none'")
+            c.execute("ALTER TABLE atomic_facts ADD COLUMN IF NOT EXISTS conflict_group_id TEXT")
 
     def claim_request(self, request_id: str, user_id: str) -> bool:
         """Atomically claim a request_id for processing.
