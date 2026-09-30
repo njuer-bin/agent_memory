@@ -74,7 +74,7 @@ class SQLiteStore:
         def __exit__(self, exc_type, exc, tb):
             if self._pool_context is not None:
                 return self._pool_context.__exit__(exc_type, exc, tb)
-            return self._conn.__exit__(exc_type, exc, tb)
+            result = self._conn.__exit__(exc_type, exc, tb)\n            self._conn.close()\n            return result
         def execute(self, sql, params=None):
             if self._postgres:
                 sql = sql.replace("?", "%s")
