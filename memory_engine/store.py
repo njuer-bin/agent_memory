@@ -2,8 +2,16 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import re
 import sqlite3
+
+try:
+    import psycopg
+    from psycopg.rows import dict_row
+except ImportError:
+    psycopg = None
+    dict_row = None
 import threading
 from collections import Counter, defaultdict
 from pathlib import Path
