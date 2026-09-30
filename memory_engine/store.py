@@ -145,7 +145,8 @@ class SQLiteStore:
                 supersedes_id TEXT,
                 source TEXT NOT NULL DEFAULT 'user',
                 conflict_status TEXT NOT NULL DEFAULT 'none',
-                conflict_group_id TEXT
+                conflict_group_id TEXT,
+                source_message_id TEXT
             );
 
             CREATE TABLE IF NOT EXISTS conflict_logs (
@@ -169,7 +170,8 @@ class SQLiteStore:
                 object TEXT NOT NULL,
                 content TEXT NOT NULL,
                 timestamp INTEGER NOT NULL,
-                fingerprint TEXT NOT NULL
+                fingerprint TEXT NOT NULL,
+                source_message_id TEXT
             );
 
             CREATE TABLE IF NOT EXISTS timeline_events (
@@ -181,7 +183,8 @@ class SQLiteStore:
                 fingerprint TEXT NOT NULL,
                 event_start INTEGER,
                 event_end INTEGER,
-                temporal_text TEXT
+                temporal_text TEXT,
+                source_message_id TEXT
             );
 
             CREATE TABLE IF NOT EXISTS rule_memories (
@@ -190,7 +193,8 @@ class SQLiteStore:
                 rule TEXT NOT NULL,
                 content TEXT NOT NULL,
                 timestamp INTEGER NOT NULL,
-                fingerprint TEXT NOT NULL
+                fingerprint TEXT NOT NULL,
+                source_message_id TEXT
             );
 
             CREATE TABLE IF NOT EXISTS user_profiles (
@@ -223,7 +227,7 @@ class SQLiteStore:
 
     def _ensure_sqlite_columns(self, c):
         existing = {row[1] for row in c.execute("PRAGMA table_info(atomic_facts)").fetchall()}
-        wanted = {"source": "TEXT NOT NULL DEFAULT 'user'", "conflict_status": "TEXT NOT NULL DEFAULT 'none'", "conflict_group_id": "TEXT"}
+        wanted = {"source": "TEXT NOT NULL DEFAULT 'user'", "conflict_status": "TEXT NOT NULL DEFAULT 'none'", "conflict_group_id": "TEXT", "source_message_id": "TEXT"}
         for name, definition in wanted.items():
             if name not in existing:
                 c.execute(f"ALTER TABLE atomic_facts ADD COLUMN {name} {definition}")
@@ -234,9 +238,9 @@ class SQLiteStore:
             "CREATE TABLE IF NOT EXISTS raw_memories (id TEXT PRIMARY KEY, request_id TEXT NOT NULL, user_id TEXT NOT NULL, session_id TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL, timestamp BIGINT NOT NULL, chunk_index INTEGER NOT NULL DEFAULT 0)",
             "CREATE TABLE IF NOT EXISTS atomic_facts (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, subject TEXT NOT NULL, predicate TEXT NOT NULL, object TEXT NOT NULL, content TEXT NOT NULL, timestamp BIGINT NOT NULL, fingerprint TEXT NOT NULL, valid_from BIGINT NOT NULL, valid_to BIGINT, status TEXT NOT NULL DEFAULT 'active', supersedes_id TEXT, source TEXT NOT NULL DEFAULT 'user', conflict_status TEXT NOT NULL DEFAULT 'none', conflict_group_id TEXT)",
             "CREATE TABLE IF NOT EXISTS conflict_logs (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, predicate TEXT NOT NULL, old_fact_id TEXT, new_fact_id TEXT, old_object TEXT, new_object TEXT, resolution TEXT NOT NULL, reason TEXT, created_at BIGINT NOT NULL)",
-            "CREATE TABLE IF NOT EXISTS entity_relations (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, subject TEXT NOT NULL, predicate TEXT NOT NULL, object TEXT NOT NULL, content TEXT NOT NULL, timestamp BIGINT NOT NULL, fingerprint TEXT NOT NULL)",
-            "CREATE TABLE IF NOT EXISTS timeline_events (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, event TEXT NOT NULL, content TEXT NOT NULL, timestamp BIGINT NOT NULL, fingerprint TEXT NOT NULL, event_start BIGINT, event_end BIGINT, temporal_text TEXT)",
-            "CREATE TABLE IF NOT EXISTS rule_memories (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, rule TEXT NOT NULL, content TEXT NOT NULL, timestamp BIGINT NOT NULL, fingerprint TEXT NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS entity_relations (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, subject TEXT NOT NULL, predicate TEXT NOT NULL, object TEXT NOT NULL, content TEXT NOT NULL, timestamp BIGINT NOT NULL, fingerprint TEXT NOT NULL, source_message_id TEXT)",
+            "CREATE TABLE IF NOT EXISTS timeline_events (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, event TEXT NOT NULL, content TEXT NOT NULL, timestamp BIGINT NOT NULL, fingerprint TEXT NOT NULL, event_start BIGINT, event_end BIGINT, temporal_text TEXT, source_message_id TEXT)",
+            "CREATE TABLE IF NOT EXISTS rule_memories (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, rule TEXT NOT NULL, content TEXT NOT NULL, timestamp BIGINT NOT NULL, fingerprint TEXT NOT NULL, source_message_id TEXT)",
             "CREATE TABLE IF NOT EXISTS user_profiles (user_id TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, content TEXT NOT NULL, timestamp BIGINT NOT NULL, PRIMARY KEY(user_id, key))",
             "CREATE TABLE IF NOT EXISTS embeddings (memory_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, vector TEXT NOT NULL)",
             "CREATE INDEX IF NOT EXISTS idx_raw_user_time ON raw_memories(user_id, timestamp)",
@@ -251,6 +255,10 @@ class SQLiteStore:
             c.execute("ALTER TABLE atomic_facts ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'user'")
             c.execute("ALTER TABLE atomic_facts ADD COLUMN IF NOT EXISTS conflict_status TEXT NOT NULL DEFAULT 'none'")
             c.execute("ALTER TABLE atomic_facts ADD COLUMN IF NOT EXISTS conflict_group_id TEXT")
+            c.execute("ALTER TABLE atomic_facts ADD COLUMN IF NOT EXISTS source_message_id TEXT")
+            c.execute("ALTER TABLE entity_relations ADD COLUMN IF NOT EXISTS source_message_id TEXT")
+            c.execute("ALTER TABLE timeline_events ADD COLUMN IF NOT EXISTS source_message_id TEXT")
+            c.execute("ALTER TABLE rule_memories ADD COLUMN IF NOT EXISTS source_message_id TEXT")
 
     def claim_request(self, request_id: str, user_id: str) -> bool:
         """Atomically claim a request_id for processing.
@@ -295,7 +303,7 @@ class SQLiteStore:
                 f.timestamp, f.fingerprint, f.valid_from, f.valid_to,
                 f.status, getattr(f, "supersedes_id", None),
                 getattr(f, "source", "user"), getattr(f, "conflict_status", "none"),
-                getattr(f, "conflict_group_id", None)
+                getattr(f, "conflict_group_id", None), getattr(f, "source_message_id", None)
             ))
 
     def insert_conflict_log(self, row: dict[str, Any]):
@@ -337,28 +345,28 @@ class SQLiteStore:
         with self._lock, self.connect() as c:
             c.execute("""
                 INSERT INTO entity_relations
-                (id,user_id,subject,predicate,object,content,timestamp,fingerprint)
-                VALUES(?,?,?,?,?,?,?,?)
+                (id,user_id,subject,predicate,object,content,timestamp,fingerprint,source_message_id)
+                VALUES(?,?,?,?,?,?,?,?,?)
             """, (r.id,r.user_id,r.subject,r.predicate,r.object,r.content,
-                  r.timestamp,r.fingerprint))
+                  r.timestamp,r.fingerprint,getattr(r, "source_message_id", None)))
 
     def insert_event(self, e):
         with self._lock, self.connect() as c:
             c.execute("""
                 INSERT INTO timeline_events
-                (id,user_id,event,content,timestamp,fingerprint,event_start,event_end,temporal_text)
-                VALUES(?,?,?,?,?,?,?,?,?)
+                (id,user_id,event,content,timestamp,fingerprint,event_start,event_end,temporal_text,source_message_id)
+                VALUES(?,?,?,?,?,?,?,?,?,?)
             """, (e.id,e.user_id,e.event,e.content,e.timestamp,e.fingerprint,
                   getattr(e, "event_start", None), getattr(e, "event_end", None),
-                  getattr(e, "temporal_text", "")))
+                  getattr(e, "temporal_text", ""), getattr(e, "source_message_id", None)))
 
     def insert_rule(self, r):
         with self._lock, self.connect() as c:
             c.execute("""
                 INSERT INTO rule_memories
-                (id,user_id,rule,content,timestamp,fingerprint)
-                VALUES(?,?,?,?,?,?)
-            """, (r.id,r.user_id,r.rule,r.content,r.timestamp,r.fingerprint))
+                (id,user_id,rule,content,timestamp,fingerprint,source_message_id)
+                VALUES(?,?,?,?,?,?,?)
+            """, (r.id,r.user_id,r.rule,r.content,r.timestamp,r.fingerprint,getattr(r, "source_message_id", None)))
 
     def upsert_profile(self, p):
         with self._lock, self.connect() as c:
@@ -383,6 +391,29 @@ class SQLiteStore:
                         user_id=EXCLUDED.user_id,
                         vector=EXCLUDED.vector
                 """, (memory_id,user_id,json.dumps(vector,separators=(",",":"))))
+
+    def raw_neighbors(self, user_id: str, source_message_id: str, before: int = 2, after: int = 2):
+        """Return bounded neighboring raw messages around a source message."""
+        before = max(0, int(before))
+        after = max(0, int(after))
+        with self._lock, self.connect() as c:
+            source = c.execute(
+                "SELECT id, session_id FROM raw_memories WHERE user_id=? AND id=? LIMIT 1",
+                (user_id, source_message_id),
+            ).fetchone()
+            if not source:
+                return []
+            rows = c.execute(
+                "SELECT * FROM raw_memories WHERE user_id=? AND session_id=? ORDER BY timestamp ASC, id ASC",
+                (user_id, source["session_id"]),
+            ).fetchall()
+        rows = [dict(r) for r in rows]
+        index = next((i for i, row in enumerate(rows) if row["id"] == source_message_id), None)
+        if index is None:
+            return []
+        lo = max(0, index - before)
+        hi = min(len(rows), index + after + 1)
+        return [row for row in rows[lo:hi] if row["id"] != source_message_id]
 
     def all_raw(self, user_id: str, session_id: Optional[str] = None):
         sql = "SELECT * FROM raw_memories WHERE user_id=?"
