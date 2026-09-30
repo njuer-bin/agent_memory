@@ -236,7 +236,7 @@ class SQLiteStore:
         statements = [
             "CREATE TABLE IF NOT EXISTS request_log (request_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, created_at BIGINT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS raw_memories (id TEXT PRIMARY KEY, request_id TEXT NOT NULL, user_id TEXT NOT NULL, session_id TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL, timestamp BIGINT NOT NULL, chunk_index INTEGER NOT NULL DEFAULT 0)",
-            "CREATE TABLE IF NOT EXISTS atomic_facts (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, subject TEXT NOT NULL, predicate TEXT NOT NULL, object TEXT NOT NULL, content TEXT NOT NULL, timestamp BIGINT NOT NULL, fingerprint TEXT NOT NULL, valid_from BIGINT NOT NULL, valid_to BIGINT, status TEXT NOT NULL DEFAULT 'active', supersedes_id TEXT, source TEXT NOT NULL DEFAULT 'user', conflict_status TEXT NOT NULL DEFAULT 'none', conflict_group_id TEXT)",
+            "CREATE TABLE IF NOT EXISTS atomic_facts (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, subject TEXT NOT NULL, predicate TEXT NOT NULL, object TEXT NOT NULL, content TEXT NOT NULL, timestamp BIGINT NOT NULL, fingerprint TEXT NOT NULL, valid_from BIGINT NOT NULL, valid_to BIGINT, status TEXT NOT NULL DEFAULT 'active', supersedes_id TEXT, source TEXT NOT NULL DEFAULT 'user', conflict_status TEXT NOT NULL DEFAULT 'none', conflict_group_id TEXT, source_message_id TEXT)",
             "CREATE TABLE IF NOT EXISTS conflict_logs (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, predicate TEXT NOT NULL, old_fact_id TEXT, new_fact_id TEXT, old_object TEXT, new_object TEXT, resolution TEXT NOT NULL, reason TEXT, created_at BIGINT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS entity_relations (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, subject TEXT NOT NULL, predicate TEXT NOT NULL, object TEXT NOT NULL, content TEXT NOT NULL, timestamp BIGINT NOT NULL, fingerprint TEXT NOT NULL, source_message_id TEXT)",
             "CREATE TABLE IF NOT EXISTS timeline_events (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, event TEXT NOT NULL, content TEXT NOT NULL, timestamp BIGINT NOT NULL, fingerprint TEXT NOT NULL, event_start BIGINT, event_end BIGINT, temporal_text TEXT, source_message_id TEXT)",
@@ -296,8 +296,8 @@ class SQLiteStore:
             c.execute("""
                 INSERT INTO atomic_facts
                 (id,user_id,subject,predicate,object,content,timestamp,fingerprint,
-                 valid_from,valid_to,status,supersedes_id,source,conflict_status,conflict_group_id)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                 valid_from,valid_to,status,supersedes_id,source,conflict_status,conflict_group_id,source_message_id)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """, (
                 f.id, f.user_id, f.subject, f.predicate, f.object, f.content,
                 f.timestamp, f.fingerprint, f.valid_from, f.valid_to,
