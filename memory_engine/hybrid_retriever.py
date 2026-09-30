@@ -54,7 +54,10 @@ class HybridRetriever:
                 "status": f["status"], "source": "atomic_fact",
                 "valid_from": f["valid_from"], "valid_to": f["valid_to"],
                 "metadata": {"subject":f["subject"],"predicate":f["predicate"],
-                             "object":f["object"],"supersedes_id":f["supersedes_id"]},
+                             "object":f["object"],"supersedes_id":f["supersedes_id"],
+                             "source":f.get("source", "user"),
+                             "conflict_status":f.get("conflict_status", "none"),
+                             "conflict_group_id":f.get("conflict_group_id")},
             })
 
         for e in events:
