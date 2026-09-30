@@ -20,6 +20,7 @@ import requests
 
 BASE = os.getenv("BASE_URL", "http://127.0.0.1:8000")
 TOP_K = int(os.getenv("BENCHMARK_TOP_K", "10"))
+API_KEY = os.getenv("BENCHMARK_API_KEY", "").strip()
 TIMEOUT = 30
 
 T = {
@@ -30,7 +31,8 @@ T = {
 
 
 def post(path, payload):
-    r = requests.post(BASE + path, json=payload, timeout=TIMEOUT)
+    headers = {"X-API-Key": API_KEY} if API_KEY else {}
+    r = requests.post(BASE + path, json=payload, headers=headers, timeout=TIMEOUT)
     r.raise_for_status()
     return r.json()
 
@@ -111,7 +113,7 @@ def main():
     print("=" * 72)
     print("AML PHASE-2 MEMORY BENCHMARK")
     print("=" * 72)
-    print(f"BASE={BASE}  TOP_K={TOP_K}")
+    print(f"BASE={BASE}  TOP_K={TOP_K}  AUTH={"ON" if API_KEY else "OFF"}")
 
     run_id = uuid.uuid4().hex[:10]
     user_a = "bench-a-" + run_id
