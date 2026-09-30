@@ -168,10 +168,6 @@ class SQLiteStore:
             CREATE INDEX IF NOT EXISTS idx_event_user_time
                 ON timeline_events(user_id, timestamp);
             """)
-            cols = {row[1] for row in c.execute("PRAGMA table_info(timeline_events)").fetchall()}
-            for name, typ in (("event_start", "INTEGER"), ("event_end", "INTEGER"), ("temporal_text", "TEXT")):
-                if name not in cols:
-                    c.execute(f"ALTER TABLE timeline_events ADD COLUMN {name} {typ}")
 
     def _init_postgres(self):
         statements = [
@@ -203,7 +199,7 @@ class SQLiteStore:
         """
         with self._lock, self.connect() as c:
             cur = c.execute(
-                "INSERT OR IGNORE INTO request_log(request_id,user_id,created_at) VALUES(?,?,?)",
+                "INSERT INTO request_log(request_id,user_id,created_at) VALUES(?,?,?) ON CONFLICT(request_id) DO NOTHING",
                 (request_id, user_id, now_ms())
             )
             return cur.rowcount == 1
@@ -297,8 +293,11 @@ class SQLiteStore:
             self._embedding_cache[user_id][memory_id] = list(vector)
             with self.connect() as c:
                 c.execute("""
-                    INSERT OR REPLACE INTO embeddings(memory_id,user_id,vector)
+                    INSERT INTO embeddings(memory_id,user_id,vector)
                     VALUES(?,?,?)
+                    ON CONFLICT(memory_id) DO UPDATE SET
+                        user_id=EXCLUDED.user_id,
+                        vector=EXCLUDED.vector
                 """, (memory_id,user_id,json.dumps(vector,separators=(",",":"))))
 
     def all_raw(self, user_id: str, session_id: Optional[str] = None):
