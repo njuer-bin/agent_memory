@@ -142,13 +142,31 @@ class HybridRetriever:
             dense_rank = {mid: i + 1 for i, (mid, _) in enumerate(dense_pairs)}
 
         # RRF：避免 sparse/dense 的原始分数不可比。
+        # P3 实验默认关闭；只有显式设置 RRF_MODE 才启用 Weighted RRF，
+        # 这样线上 P1 基线不会被实验代码改变。
         t_profile = time.perf_counter()
         rrf_k = 60.0
+        rrf_mode = os.getenv("RRF_MODE", "standard").strip().lower()
+        bm25_weight = 1.0
+        dense_weight = 1.0
+        if rrf_mode == "weighted_v1":
+            # 事实型查询更依赖明确词面/实体，语义型查询更依赖 dense。
+            if intent_hint == "fact":
+                bm25_weight, dense_weight = 0.65, 0.35
+            else:
+                bm25_weight, dense_weight = 0.35, 0.65
+        elif rrf_mode == "weighted_v2":
+            # 更激进的实验版本，仅用于 benchmark，不作为默认线上配置。
+            if intent_hint == "fact":
+                bm25_weight, dense_weight = 0.75, 0.25
+            else:
+                bm25_weight, dense_weight = 0.25, 0.75
+
         merged = defaultdict(float)
         for mid, rank in sparse_rank.items():
-            merged[mid] += 1.0 / (rrf_k + rank)
+            merged[mid] += bm25_weight / (rrf_k + rank)
         for mid, rank in dense_rank.items():
-            merged[mid] += 1.0 / (rrf_k + rank)
+            merged[mid] += dense_weight / (rrf_k + rank)
 
         by_id = {d["id"]: d for d in docs}
         result = []
