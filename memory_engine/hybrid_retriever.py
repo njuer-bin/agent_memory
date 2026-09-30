@@ -44,7 +44,7 @@ class HybridRetriever:
                 "session_id": r["session_id"], "memory_type": "raw",
                 "status": "active", "source": "raw",
                 "valid_from": r["timestamp"], "valid_to": None,
-                "metadata": {"request_id": r["request_id"]},
+                "metadata": {"request_id": r["request_id"], "source_message_id": r["id"]},
             })
 
         for f in facts:
@@ -58,7 +58,8 @@ class HybridRetriever:
                              "object":f["object"],"supersedes_id":f["supersedes_id"],
                              "source":f.get("source", "user"),
                              "conflict_status":f.get("conflict_status", "none"),
-                             "conflict_group_id":f.get("conflict_group_id")},
+                             "conflict_group_id":f.get("conflict_group_id"),
+                             "source_message_id":f.get("source_message_id")},
             })
 
         for e in events:
@@ -72,6 +73,7 @@ class HybridRetriever:
                 "metadata": {
                     "event": e["event"],
                     "temporal_text": e.get("temporal_text") or "",
+                    "source_message_id": e.get("source_message_id")},
                 },
             })
 
@@ -83,7 +85,7 @@ class HybridRetriever:
                 "status": "active", "source": "graph",
                 "valid_from": r["timestamp"], "valid_to": None,
                 "metadata": {"subject":r["subject"],"predicate":r["predicate"],
-                             "object":r["object"]},
+                             "object":r["object"], "source_message_id": r.get("source_message_id")},
             })
 
         for r in rules:
@@ -93,7 +95,7 @@ class HybridRetriever:
                 "session_id": "", "memory_type": "rule",
                 "status": "active", "source": "rule",
                 "valid_from": r["timestamp"], "valid_to": None,
-                "metadata": {},
+                "metadata": {"source_message_id": r.get("source_message_id")},
             })
 
         for p in profiles:
