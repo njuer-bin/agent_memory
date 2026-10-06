@@ -50,7 +50,8 @@ class SearchRequest(BaseModel):
     query: str = Field(min_length=1)
     user_id: str = Field(min_length=1)
     top_k: int = Field(ge=1, le=100)
-    options: Optional[dict[str, Any]] = None
+    # AML choice questions send options as a top-level string array.
+    options: Optional[list[str]] = None
 
     # Internal/backward-compatible controls. AML does not need to send these.
     question: Optional[str] = None
