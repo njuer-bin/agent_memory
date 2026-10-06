@@ -34,8 +34,8 @@ class FakeStore:
 def test_graph_retriever_expands_two_hops():
     retriever = GraphRetriever(FakeStore())
     seeds = [{
-        "metadata": {"subject": "user", "object": "Bob"},
-        "content": "用户的朋友是 Bob",
+        "metadata": {"subject": "user"},
+        "content": "用户是关系图的起点",
     }]
 
     results = retriever.expand("u1", seeds, limit=10, max_hops=2)
@@ -44,6 +44,10 @@ def test_graph_retriever_expands_two_hops():
     assert "r1" in ids
     assert "r2" in ids
     assert "r3" not in ids
+
+    first_hop = next(item for item in results if item["id"] == "r1")
+    assert first_hop["metadata"]["graph_hop"] == 1
+    assert first_hop["metadata"]["graph_path"] == ["user", "Bob"]
 
     second_hop = next(item for item in results if item["id"] == "r2")
     assert second_hop["metadata"]["graph_hop"] == 2
