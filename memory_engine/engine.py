@@ -235,6 +235,34 @@ class MemoryEngine:
         )
         rerank_ms = (time.perf_counter() - t0) * 1000
 
+        # P2：当前状态优先。对于“现在/目前/当前/最新”等状态查询，
+        # 先按 predicate 命中的 active fact/profile 排在原始历史消息之前。
+        # 这避免旧 raw memory 因词面相似度压过已经被治理为 current 的新值。
+        current_markers = ("现在", "目前", "当前", "最新", "现居", "如今")
+        if (
+            not request.include_history
+            and plan.predicate_hint
+            and any(marker in query for marker in current_markers)
+        ):
+            def _current_state_key(item):
+                md = item.get("metadata", {}) or {}
+                is_matching_fact = (
+                    item.get("memory_type") == "fact"
+                    and item.get("status") == "active"
+                    and md.get("predicate") == plan.predicate_hint
+                )
+                is_matching_profile = (
+                    item.get("memory_type") == "profile"
+                    and md.get("key") == plan.predicate_hint
+                )
+                return (
+                    1 if (is_matching_fact or is_matching_profile) else 0,
+                    1 if item.get("memory_type") == "fact" and item.get("status") == "active" else 0,
+                    item.get("timestamp", 0),
+                    item.get("score", 0.0),
+                )
+            ranked.sort(key=_current_state_key, reverse=True)
+
         t0 = time.perf_counter()
         ranked = self.evidence.build(ranked, request.top_k)
         evidence_ms = (time.perf_counter() - t0) * 1000
