@@ -131,6 +131,32 @@ class HybridRetriever:
         return docs
 
     @staticmethod
+    def _normalize_source_text(value: str) -> str:
+        return " ".join(str(value or "").lower().split())
+
+    def _attach_source_message_ids(self, docs: list[dict], raws: list[dict]) -> None:
+        """Attach raw-message provenance to structured memories."""
+        if not raws:
+            return
+        raw_pairs = [
+            (r["id"], self._normalize_source_text(r.get("content", "")))
+            for r in raws
+        ]
+        for doc in docs:
+            if doc.get("memory_type") in {"raw", "window", "session"}:
+                continue
+            content = self._normalize_source_text(doc.get("content", ""))
+            if not content:
+                continue
+            source_ids = []
+            for raw_id, raw_text in raw_pairs:
+                if raw_text and (content in raw_text or raw_text in content):
+                    source_ids.append(raw_id)
+            if source_ids:
+                md = doc.setdefault("metadata", {})
+                md["source_message_ids"] = list(dict.fromkeys(source_ids[:8]))
+
+    @staticmethod
     def _deterministic_signal(query: str, doc: dict) -> float:
         """Small deterministic signals that complement dense/sparse retrieval."""
         q = (query or "").strip().lower()
@@ -230,6 +256,11 @@ class HybridRetriever:
                 "source": "profile", "valid_from": p["timestamp"], "valid_to": None,
                 "metadata": {"key":p["key"],"value":p["value"]},
             })
+
+        # Attach provenance from structured memories back to the original raw
+        # message(s). LoCoMo evaluates evidence at message level, so a
+        # structured hit must remain traceable to the message that produced it.
+        self._attach_source_message_ids(docs, raws)
 
         if memory_types:
             allowed = set(memory_types)
