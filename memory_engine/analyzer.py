@@ -171,6 +171,32 @@ class MemoryAnalyzer:
             fingerprint=fingerprint(user_id, "rel", subject, predicate, object_),
         )
 
+    @staticmethod
+    def resolve_references(content: str, known_entities: list[str]) -> str:
+        """Resolve a small safe subset of conversational references.
+
+        Only rewrite when exactly one recent candidate is available.  This
+        avoids aggressive coreference guesses while still handling common
+        cross-message forms such as "这个项目" / "这个公司".
+        """
+        entities = []
+        for value in known_entities:
+            value = str(value).strip()
+            if value and value not in {"user", "我", "用户"} and value not in entities:
+                entities.append(value)
+        if not entities:
+            return content
+        target = entities[0]
+        replacements = (
+            "这个项目", "该项目", "这个公司", "该公司", "这个人", "这个朋友",
+            "那个项目", "那个公司", "那个朋友",
+        )
+        out = content
+        for marker in replacements:
+            if marker in out:
+                out = out.replace(marker, target)
+        return out
+
     def analyze(self, user_id: str, content: str, timestamp: int, source: str = "user"):
         facts: list[Fact] = []
         relations: list[Relation] = []
