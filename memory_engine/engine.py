@@ -397,12 +397,17 @@ class MemoryEngine:
                 bridge_candidates = []
                 for rel in relation_rows:
                     predicate = rel.get("predicate")
-                    if rel.get("id") in existing_ids or predicate not in relevant_predicates:
+                    if predicate not in relevant_predicates:
                         continue
                     subject = str(rel.get("subject") or "").strip()
                     object_ = str(rel.get("object") or "").strip()
                     if not ({subject, object_} & ranked_entities):
                         continue
+
+                    # Do not exclude an already-ranked relation here.  It may
+                    # have been present in the reranker output but later lost
+                    # from the EvidenceBuilder prefix.  We explicitly promote
+                    # the semantic final-hop relation back to the front.
                     bridge_candidates.append((predicate_priority.get(predicate, 50), rel))
 
                 bridge = None
@@ -421,6 +426,7 @@ class MemoryEngine:
                         "valid_from": rel["timestamp"], "valid_to": None,
                         "metadata": {"subject": subject, "predicate": rel.get("predicate"), "object": object_, "graph_hop": 1},
                     }
+
                 if bridge is not None:
                     # EvidenceBuilder keeps the first top_k candidates, so a
                     # bridge appended at the tail would still be discarded.
