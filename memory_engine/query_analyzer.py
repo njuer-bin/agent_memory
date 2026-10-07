@@ -157,14 +157,41 @@ class QueryAnalyzer:
         return q if not unique else q + " " + " ".join(unique)
 
     @staticmethod
-    def retrieval_queries(plan: QueryPlan) -> list[str]:
-        """Generate small deterministic subqueries for multi-hop retrieval.
+    def _english_evidence_queries(q: str) -> list[str]:
+        """Build evidence-oriented subqueries for English benchmark questions."""
+        tokens = re.findall(r"[A-Za-z][A-Za-z0-9_-]*|\d{4}", q)
+        if not tokens:
+            return []
+        stop = {
+            "what", "which", "who", "where", "when", "why", "how", "many",
+            "much", "does", "did", "do", "has", "have", "had", "is", "are",
+            "was", "were", "be", "been", "being", "the", "a", "an", "and",
+            "or", "to", "of", "for", "in", "on", "at", "with", "from", "by",
+            "that", "this", "these", "those", "they", "them", "their", "both",
+            "some", "any", "all", "ever", "also", "really", "just", "till",
+            "date", "currently", "mentioned",
+        }
+        entities = []
+        for raw in tokens:
+            if raw[0].isupper() and raw.lower() not in stop and raw not in entities:
+                entities.append(raw)
+        terms = [t.lower() for t in tokens if t.lower() not in stop and len(t) > 2]
+        years = [t for t in tokens if re.fullmatch(r"\d{4}", t)]
+        variants = []
+        salient = terms[:5]
+        for entity in entities[:4]:
+            tail = [t for t in salient if t.lower() != entity.lower()][:4]
+            variants.append(" ".join([entity, *tail]))
+        if len(entities) >= 2:
+            variants.append(" ".join(entities[:2]) + " common shared both")
+        if years:
+            for entity in entities[:2]:
+                variants.append(" ".join([entity, *years[:2]]))
+        return list(dict.fromkeys(x.strip() for x in variants if x.strip()))[:7]
 
-        This is query decomposition, not answer generation.  Keeping the
-        variants bounded makes it safe for hosted evaluation and gives the
-        first retrieval round a chance to find bridge entities even when the
-        final question has no literal entity name.
-        """
+    @staticmethod
+    def retrieval_queries(plan: QueryPlan) -> list[str]:
+        """Generate bounded full-query and evidence-requirement retrieval views."""
         q = plan.rewritten
         variants = [q]
         if plan.multi_hop:
@@ -178,15 +205,12 @@ class QueryAnalyzer:
                 variants += ["城市 国家 属于", "地点 国家", "属于 国家"]
             if any(x in plan.original for x in ("也叫", "又名", "别名", "简称")):
                 variants += ["别名 也叫 又名", "alias canonical 总部 公司"]
-            if any(x in plan.original for x in ("属于哪个国家", "属于什么国家", "哪个国家")):
-                variants += ["城市 国家 属于", "地点 国家", "属于 国家"]
-            if any(x in plan.original for x in ("也叫", "又名", "别名", "简称")):
-                variants += ["别名 也叫 又名", "alias canonical 总部 公司"]
             if any(x in plan.original for x in ("为什么", "原因", "导致", "因为", "所以", "因此")):
                 variants += ["原因 因为 导致", "原因 结果 影响"]
+            variants += QueryAnalyzer._english_evidence_queries(plan.original)
         if plan.expanded_query:
             variants.append(plan.expanded_query)
-        return list(dict.fromkeys(x.strip() for x in variants if x.strip()))[:7]
+        return list(dict.fromkeys(x.strip() for x in variants if x.strip()))[:12]
 
     @staticmethod
     def rewrite(q: str) -> str:
