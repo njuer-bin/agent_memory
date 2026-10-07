@@ -364,6 +364,42 @@ class MemoryEngine:
             predicate_hint=plan.predicate_hint,
             intent_hint=plan.intent_hint,
         )
+        # P5: preserve one deterministic next-hop bridge after reranking.
+        if plan.multi_hop and ranked:
+            relation_rows = self.store.relations(request.user_id)
+            ranked_entities = set()
+            for item in ranked:
+                md = item.get("metadata", {}) or {}
+                for key in ("subject", "object", "value", "event"):
+                    value = str(md.get(key) or "").strip()
+                    if value and value not in {"user", "我", "用户"}:
+                        ranked_entities.add(value)
+            if ranked_entities:
+                relevant_predicates = {"belongs_to", "causes", "headquarters", "work_at", "recommend", "located_in", "alias_of"}
+                existing_ids = {item.get("id") for item in ranked}
+                bridge = None
+                for rel in relation_rows:
+                    if rel.get("id") in existing_ids or rel.get("predicate") not in relevant_predicates:
+                        continue
+                    subject = str(rel.get("subject") or "").strip()
+                    object_ = str(rel.get("object") or "").strip()
+                    if not ({subject, object_} & ranked_entities):
+                        continue
+                    bridge = {
+                        "id": rel["id"], "content": rel["content"], "role": "relation",
+                        "timestamp": rel["timestamp"], "user_id": request.user_id,
+                        "session_id": "", "score": 0.40, "source": "next_hop_bridge",
+                        "memory_type": "relation", "status": "active",
+                        "valid_from": rel["timestamp"], "valid_to": None,
+                        "metadata": {"subject": subject, "predicate": rel.get("predicate"), "object": object_, "graph_hop": 1},
+                    }
+                    break
+                if bridge is not None:
+                    if len(ranked) >= request.top_k:
+                        ranked[-1] = bridge
+                    else:
+                        ranked.append(bridge)
+
         rerank_ms = (time.perf_counter() - t0) * 1000
 
         # P2：当前状态优先。对于“现在/目前/当前/最新”等状态查询，
