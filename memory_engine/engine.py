@@ -88,8 +88,19 @@ class MemoryEngine:
 
                 role = (msg.role or "user").strip().lower()
                 source = "system" if role == "system" else ("assistant" if role in {"assistant", "model"} else "user")
+
+                # Conservative reference resolution before extraction.  We use
+                # only recently seen structured entities for this user and do
+                # not resolve ambiguous pronouns when no unique anchor exists.
+                recent_entities = []
+                for rel in self.store.relations(request.user_id)[:12]:
+                    for value in (rel.get("subject"), rel.get("object")):
+                        value = str(value or "").strip()
+                        if value and value not in {"user", "我", "用户"} and value not in recent_entities:
+                            recent_entities.append(value)
+                resolved_content = self.analyzer.resolve_references(msg.content, recent_entities[:1])
                 analyzed = self.analyzer.analyze(
-                    request.user_id, msg.content, ts, source=source
+                    request.user_id, resolved_content, ts, source=source
                 )
 
                 for fact in analyzed["facts"]:
