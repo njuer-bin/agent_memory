@@ -1,31 +1,51 @@
 from __future__ import annotations
 
-from collections import OrderedDict
-
 
 class EvidenceBuilder:
     def build(self, candidates, top_k):
-        """
-        Evidence completeness：
-        同一事实的 raw + structured evidence 不重复刷屏；
-        优先保留不同 memory_type 的互补证据。
-        """
+        """Select evidence without dropping requirement coverage too early."""
         selected = []
         seen_content = set()
-        type_count = {}
+        used_ids = set()
 
-        # 第一轮：保证证据类型多样性
+        # First protect every evidence requirement. The previous implementation
+        # capped each memory_type at three items, which could silently discard
+        # the fourth/fifth independent evidence needed by LoCoMo multi-hop QA.
+        requirement_ids = []
         for item in candidates:
-            content = item["content"].strip()
-            if not content or content in seen_content:
+            for req_id in item.get("_evidence_requirements", []) or []:
+                if req_id not in requirement_ids:
+                    requirement_ids.append(req_id)
+
+        for req_id in requirement_ids:
+            for item in candidates:
+                if item.get("id") in used_ids:
+                    continue
+                if req_id not in (item.get("_evidence_requirements", []) or []):
+                    continue
+                content = str(item.get("content") or "").strip()
+                if not content or content in seen_content:
+                    continue
+                selected.append(item)
+                seen_content.add(content)
+                used_ids.add(item.get("id"))
+                break
+            if len(selected) >= top_k:
+                return selected[:top_k]
+
+        # Then fill by global ranking. Keep the old anti-duplication behavior,
+        # but do not impose a per-memory-type quota: evidence completeness is
+        # more important than artificial type diversity for multi-hop queries.
+        for item in candidates:
+            if item.get("id") in used_ids:
                 continue
-            mt = item.get("memory_type","raw")
-            if type_count.get(mt,0) >= 3:
+            content = str(item.get("content") or "").strip()
+            if not content or content in seen_content:
                 continue
             selected.append(item)
             seen_content.add(content)
-            type_count[mt] = type_count.get(mt,0) + 1
+            used_ids.add(item.get("id"))
             if len(selected) >= top_k:
                 break
 
-        return selected
+        return selected[:top_k]
