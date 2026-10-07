@@ -62,3 +62,40 @@ def test_controlled_open_domain_anchor(tmp_path):
 
     rows = search(engine, "我住的城市属于哪个国家？", 5)
     assert any("上海" in row["content"] for row in rows), rows
+
+
+def test_reverse_causal_direction(tmp_path):
+    engine = MemoryEngine(str(tmp_path / "memory.db"))
+
+    add(engine, "b-c3", "s1", "上线推迟是因为项目延期。", 1704067200000)
+
+    relations = engine.store.relations("b-test-user")
+    causal = [
+        r for r in relations
+        if r.get("predicate") == "causes"
+    ]
+    assert any(
+        r.get("subject") == "项目延期" and r.get("object") == "上线推迟"
+        for r in causal
+    ), causal
+
+
+def test_alias_and_coreference_chain(tmp_path):
+    engine = MemoryEngine(str(tmp_path / "memory.db"))
+
+    add(engine, "b-a1", "s1", "Acme 也叫 艾克米。", 1704067200000)
+    add(engine, "b-a2", "s2", "这个公司总部在上海。", 1704067300000)
+
+    relations = engine.store.relations("b-test-user")
+    assert any(
+        r.get("predicate") == "alias_of"
+        and r.get("subject") == "Acme"
+        and r.get("object") == "艾克米"
+        for r in relations
+    ), relations
+    assert any(
+        r.get("predicate") == "headquarters"
+        and r.get("subject") == "Acme"
+        and r.get("object") == "上海"
+        for r in relations
+    ), relations
