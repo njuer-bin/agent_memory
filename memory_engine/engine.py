@@ -99,7 +99,7 @@ class MemoryEngine:
                 # (e.g. "我最近负责 Acme 项目" -> "这个项目...").
                 for raw in self.store.all_raw(request.user_id)[:12]:
                     raw_content = str(raw.get("content") or "")
-                    for match in re.findall(r"([A-Za-z][A-Za-z0-9_-]{1,39})(?=项目|公司|集团|团队)", raw_content):
+                    for match in re.findall(r"([A-Za-z][A-Za-z0-9_-]{1,39})\s*(?=项目|公司|集团|团队)", raw_content):
                         if match not in recent_entities:
                             recent_entities.append(match)
                 for rel in self.store.relations(request.user_id)[:12]:
@@ -395,10 +395,11 @@ class MemoryEngine:
                     }
                     break
                 if bridge is not None:
-                    if len(ranked) >= request.top_k:
-                        ranked[-1] = bridge
-                    else:
-                        ranked.append(bridge)
+                    # EvidenceBuilder keeps the first top_k candidates, so a
+                    # bridge appended at the tail would still be discarded.
+                    bridge["score"] = max(bridge["score"], 0.90)
+                    ranked = [bridge] + [item for item in ranked if item.get("id") != bridge["id"]]
+
 
         rerank_ms = (time.perf_counter() - t0) * 1000
 
