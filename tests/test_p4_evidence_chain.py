@@ -172,3 +172,75 @@ def test_unrelated_conversational_memory_stays_out_of_chain():
         for mid in ("m1", "m2", "m3")
     )
     assert by_id["noise"]["metadata"]["evidence_chain"] is False
+
+
+def test_query_analyzer_detects_natural_multi_hop_without_force_flag():
+    from memory_engine.query_analyzer import QueryAnalyzer
+
+    analyzer = QueryAnalyzer()
+    queries = [
+        "朋友工作的公司总部在哪里？",
+        "我朋友所在的公司在哪个城市？",
+        "同事推荐的地方叫什么？",
+    ]
+
+    for query in queries:
+        plan = analyzer.analyze(query, forced_multi_hop=None)
+        assert plan.multi_hop is True, query
+
+
+def test_query_analyzer_does_not_turn_simple_relation_lookup_into_multi_hop():
+    from memory_engine.query_analyzer import QueryAnalyzer
+
+    analyzer = QueryAnalyzer()
+    simple_queries = [
+        "我的朋友是谁？",
+        "我有几个朋友？",
+        "谁是我的同事？",
+    ]
+
+    for query in simple_queries:
+        plan = analyzer.analyze(query, forced_multi_hop=None)
+        assert plan.multi_hop is False, query
+
+
+def test_evidence_chain_handles_mixed_facts_without_crossing_unrelated_component():
+    builder = EvidenceChainBuilder(max_hops=3)
+    candidates = [
+        _item("a1", "我的朋友 Bob", 0.60),
+        _item("a2", "Bob 在 Acme 工作", 0.50),
+        _item("a3", "Acme 总部在上海", 0.40),
+        _item("b1", "我的同事 Carol", 0.39),
+        _item("b2", "Carol 在 Beta 工作", 0.38),
+        _item("b3", "Beta 总部在深圳", 0.37),
+        _item("noise", "今天下雨了，晚上早点休息。", 0.99),
+    ]
+
+    ranked = builder.annotate("朋友工作的公司总部在哪里？", candidates)
+    by_id = {item["id"]: item for item in ranked}
+
+    assert all(by_id[mid]["metadata"]["evidence_chain"] for mid in ("a1", "a2", "a3"))
+    assert all(by_id[mid]["metadata"]["evidence_chain"] for mid in ("b1", "b2", "b3"))
+    assert by_id["noise"]["metadata"]["evidence_chain"] is False
+
+
+def test_evidence_chain_keeps_structured_edges_when_text_is_conversational():
+    builder = EvidenceChainBuilder(max_hops=3)
+    candidates = [
+        {
+            **_item("s1", "嗯，我朋友就是 Bob。", 0.60),
+            "metadata": {"subject": "user", "object": "Bob"},
+        },
+        {
+            **_item("s2", "他现在在 Acme 上班。", 0.50),
+            "metadata": {"subject": "Bob", "object": "Acme"},
+        },
+        {
+            **_item("s3", "那家公司总部在上海。", 0.40),
+            "metadata": {"subject": "Acme", "object": "上海"},
+        },
+    ]
+
+    ranked = builder.annotate("朋友工作的公司总部在哪里？", candidates)
+    by_id = {item["id"]: item for item in ranked}
+    assert all(by_id[mid]["metadata"]["evidence_chain"] for mid in ("s1", "s2", "s3"))
