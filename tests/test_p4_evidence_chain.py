@@ -118,3 +118,57 @@ def test_relation_parser_accepts_whitespace_and_punctuation():
     by_id = {item["id"]: item for item in ranked}
     assert by_id["m1"]["metadata"]["evidence_chain"] is True
     assert by_id["m2"]["metadata"]["evidence_chain"] is True
+
+
+def test_conversational_variants_build_same_friend_bridge():
+    builder = EvidenceChainBuilder(max_hops=2)
+    variants = [
+        "我的朋友叫 Bob",
+        "我朋友 Bob",
+        "Bob 是我的朋友",
+        "我的朋友是 Bob！",
+    ]
+    for idx, text in enumerate(variants):
+        ranked = builder.annotate(
+            "朋友工作的公司",
+            [
+                _item(f"friend-{idx}", text, 0.6),
+                _item(f"job-{idx}", "Bob 在 Acme 工作", 0.5),
+            ],
+        )
+        by_id = {item["id"]: item for item in ranked}
+        assert by_id[f"friend-{idx}"]["metadata"]["evidence_chain"] is True
+        assert by_id[f"job-{idx}"]["metadata"]["evidence_chain"] is True
+
+
+def test_multi_fact_message_is_split_into_independent_clauses():
+    builder = EvidenceChainBuilder(max_hops=2)
+    candidates = [
+        _item("m1", "我朋友 Bob 在 Acme 工作，他之前住在杭州。", 0.8),
+        _item("m2", "Acme 总部在上海。", 0.4),
+    ]
+
+    ranked = builder.annotate("朋友工作的公司总部在哪里？", candidates)
+    by_id = {item["id"]: item for item in ranked}
+
+    assert by_id["m1"]["metadata"]["evidence_chain"] is True
+    assert by_id["m2"]["metadata"]["evidence_chain"] is True
+
+
+def test_unrelated_conversational_memory_stays_out_of_chain():
+    builder = EvidenceChainBuilder(max_hops=3)
+    candidates = [
+        _item("m1", "我朋友 Bob", 0.45),
+        _item("m2", "Bob 在 Acme 工作", 0.40),
+        _item("m3", "Acme 总部在上海", 0.35),
+        _item("noise", "今天吃了火锅，晚上准备看电影。", 0.99),
+    ]
+
+    ranked = builder.annotate("朋友工作的公司总部在哪里？", candidates)
+    by_id = {item["id"]: item for item in ranked}
+
+    assert all(
+        by_id[mid]["metadata"]["evidence_chain"] is True
+        for mid in ("m1", "m2", "m3")
+    )
+    assert by_id["noise"]["metadata"]["evidence_chain"] is False
