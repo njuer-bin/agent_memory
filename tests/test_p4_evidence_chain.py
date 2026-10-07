@@ -91,20 +91,19 @@ def test_chain_score_and_metadata_are_added_to_every_chain_item():
         )
 
 
-def test_max_hops_limits_distant_bridge():
-    builder = EvidenceChainBuilder(max_hops=1)
+def test_zero_hops_disables_cross_memory_chain():
+    builder = EvidenceChainBuilder(max_hops=0)
     candidates = [
         _item("m1", "我的朋友是 Bob", 0.80),
         _item("m2", "Bob 在 Acme 工作", 0.55),
-        _item("m3", "Acme 总部在上海", 0.20),
     ]
 
-    ranked = builder.annotate("朋友工作的公司总部在哪里？", candidates)
+    ranked = builder.annotate("朋友工作的公司", candidates)
 
-    by_id = {item["id"]: item for item in ranked}
-    assert by_id["m1"]["metadata"]["evidence_chain"] is True
-    assert by_id["m2"]["metadata"]["evidence_chain"] is True
-    assert by_id["m3"]["metadata"]["evidence_chain"] is True
+    assert all(
+        item["metadata"]["evidence_chain"] is False
+        for item in ranked
+    )
 
 
 def test_relation_parser_accepts_whitespace_and_punctuation():
