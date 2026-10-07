@@ -21,7 +21,7 @@ class EvidenceChainBuilder:
     )
 
     STOP = {
-        "用户", "我", "我的", "朋友", "同事", "老板", "这个", "那个",
+        "用户", "我", "我的", "这个", "那个",
         "什么", "哪里", "哪个", "哪些", "怎么", "如何", "之前", "以前",
     }
 
@@ -31,6 +31,7 @@ class EvidenceChainBuilder:
     @classmethod
     def _clean_entity(cls, value: str) -> str:
         value = re.sub(r"^[\s，。,:：；;、]+|[\s，。,:：；;、]+$", "", value)
+        value = re.sub(r"^(?:我的|我|用户的)", "", value)
         return value.strip()
 
     @classmethod
@@ -72,7 +73,16 @@ class EvidenceChainBuilder:
                 adjacency[right].append((left, item["id"]))
 
         if not edges_by_id:
-            return candidates
+            out = []
+            for item in candidates:
+                result = dict(item)
+                metadata = dict(result.get("metadata") or {})
+                metadata["evidence_chain"] = False
+                metadata["path_completeness"] = 0.0
+                metadata["chain_score"] = 0.0
+                result["metadata"] = metadata
+                out.append(result)
+            return out
 
         # Seed the graph from the strongest retrieved memories. This keeps the
         # chain builder bounded and prevents unrelated low-score memories from
