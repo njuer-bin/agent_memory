@@ -7,6 +7,7 @@ from typing import Any
 
 from .analyzer import MemoryAnalyzer
 from .evidence import EvidenceBuilder
+from .evidence_chain import EvidenceChainBuilder
 from .governance import MemoryGovernance
 from .graph_retriever import GraphRetriever
 from .hybrid_retriever import HybridRetriever
@@ -34,6 +35,7 @@ class MemoryEngine:
         self.query_analyzer = QueryAnalyzer()
         self.reranker = LightweightReranker()
         self.evidence = EvidenceBuilder()
+        self.evidence_chain = EvidenceChainBuilder(max_hops=3)
 
     def add(self, request):
         # Claim request_id atomically before doing any writes. This closes the
@@ -263,6 +265,14 @@ class MemoryEngine:
                 )
             ranked.sort(key=_current_state_key, reverse=True)
 
+        # P4：多跳查询按“证据链”而不是单条 memory 独立排序。
+        # 仅在多跳查询启用；保持 P2 的默认查询路径不变。
+        chain_ms = 0.0
+        if plan.multi_hop:
+            t0 = time.perf_counter()
+            ranked = self.evidence_chain.annotate(plan.rewritten, ranked)
+            chain_ms = (time.perf_counter() - t0) * 1000
+
         t0 = time.perf_counter()
         ranked = self.evidence.build(ranked, request.top_k)
         evidence_ms = (time.perf_counter() - t0) * 1000
@@ -282,8 +292,8 @@ class MemoryEngine:
         if os.getenv("MEMORY_PROFILE", "").strip() == "1":
             logger.info(
                 "SEARCH_PROFILE query=%r total=%.2f latest=%.2f analyze=%.2f hybrid=%.2f "
-                "second_round=%.2f graph=%.2f rerank=%.2f evidence=%.2f candidates=%d final=%d",
+                "second_round=%.2f graph=%.2f rerank=%.2f chain=%.2f evidence=%.2f candidates=%d final=%d",
                 query, total_ms, latest_ms, analyze_ms, hybrid_ms, second_round_ms, graph_ms,
-                rerank_ms, evidence_ms, len(candidates), len(ranked),
+                rerank_ms, chain_ms, evidence_ms, len(candidates), len(ranked),
             )
         return ranked[:request.top_k]
