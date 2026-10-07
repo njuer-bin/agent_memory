@@ -93,8 +93,11 @@ class EvidenceChainBuilder:
         for seed_id in seed_ids:
             seed_edges = edges_by_id.get(seed_id, [])
             for left, right in seed_edges:
-                queue = deque([(left, 0)])
-                seen_nodes = {left}
+                # Start from both endpoints. An undirected evidence edge must
+                # be traversable from either side; starting from only ``left``
+                # would miss a chain when the bridge continues through ``right``.
+                queue = deque([(left, 0), (right, 0)])
+                seen_nodes = {left, right}
                 component_items = {seed_id}
                 while queue:
                     node, hop = queue.popleft()
