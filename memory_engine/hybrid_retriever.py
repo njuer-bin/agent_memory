@@ -301,17 +301,52 @@ class HybridRetriever:
                 if d["memory_type"] in {"window", "session"}:
                     source_ids.extend(d.get("metadata", {}).get("source_message_ids", []))
             vectors = self.store.embeddings_by_ids(user_id, source_ids)
+            qdim = len(qv or [])
+            derived_view_count = 0
+            skipped_bad_dim = 0
+            dimension_counts = defaultdict(int)
             for d in docs:
                 if d["memory_type"] not in {"window", "session"}:
                     continue
                 mids = d.get("metadata", {}).get("source_message_ids", [])
-                vals = [vectors[mid] for mid in mids if mid in vectors]
+                vals = []
+                for mid in mids:
+                    vec = vectors.get(mid)
+                    if not isinstance(vec, (list, tuple)) or not vec:
+                        continue
+                    try:
+                        vec = [float(x) for x in vec]
+                    except (TypeError, ValueError):
+                        continue
+                    dimension_counts[len(vec)] += 1
+                    # Persistent stores can contain vectors produced by an
+                    # older embedding model/dimension. Never average vectors
+                    # with different dimensions, and prefer vectors matching
+                    # the current query embedding.
+                    if qdim and len(vec) != qdim:
+                        skipped_bad_dim += 1
+                        continue
+                    vals.append(vec)
                 if not vals:
                     continue
-                dim = len(vals[0])
+                dim = qdim or len(vals[0])
+                if any(len(v) != dim for v in vals):
+                    skipped_bad_dim += sum(1 for v in vals if len(v) != dim)
+                    vals = [v for v in vals if len(v) == dim]
+                if not vals:
+                    continue
                 avg = [sum(v[i] for v in vals) / len(vals) for i in range(dim)]
                 score = float(cosine(qv, avg))
                 dense_scores[d["id"]] = score
+                derived_view_count += 1
+            if os.getenv("MEMORY_DIAGNOSTICS", "").strip() == "1":
+                logger.info(
+                    "HYBRID_DIAGNOSTICS query=%r docs=%d sparse=%d dense=%d derived=%d "
+                    "query_dim=%d skipped_dim=%d vector_dims=%s",
+                    query, len(docs), len(sparse_rank), len(dense_rank),
+                    derived_view_count, qdim, skipped_bad_dim,
+                    dict(sorted(dimension_counts.items())),
+                )
             derived = sorted(
                 ((mid, score) for mid, score in dense_scores.items() if mid not in dense_rank),
                 key=lambda x: x[1], reverse=True,
@@ -353,6 +388,13 @@ class HybridRetriever:
             result.append((d, structured))
         result.sort(key=lambda x: x[1], reverse=True)
 
+        if os.getenv("MEMORY_DIAGNOSTICS", "").strip() == "1":
+            logger.info(
+                "HYBRID_RESULT query=%r top_ids=%s top_types=%s",
+                query,
+                [d["id"] for d, _ in result[:8]],
+                [d["memory_type"] for d, _ in result[:8]],
+            )
         if os.getenv("MEMORY_PROFILE", "").strip() == "1":
             logger.info(
                 "HYBRID_PROFILE docs=%d bm25=%.2f embedding=%.2f vector_load=%.2f weighted_rrf=%.2f views=message+window+session",
