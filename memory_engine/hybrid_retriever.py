@@ -33,9 +33,14 @@ class HybridRetriever:
         self.vector_index = vector_index or MemoryVectorIndex(store)
 
     @staticmethod
-    def _window_id(source_ids: list[str]) -> str:
-        digest = hashlib.sha1("|".join(source_ids).encode("utf-8")).hexdigest()[:20]
-        return f"window_{digest}"
+    def _window_id(source_ids: list[str], view_type: str = "window") -> str:
+        # Window and session views may contain the same source IDs (e.g. a
+        # three-message session). Keep their IDs distinct so one view cannot
+        # overwrite the other in the fusion map.
+        digest = hashlib.sha1(
+            f"{view_type}|{'|'.join(source_ids)}".encode("utf-8")
+        ).hexdigest()[:20]
+        return f"{view_type}_{digest}"
 
     def _raw_views(self, raws: list[dict], user_id: str) -> list[dict]:
         """Build raw + local-window views while preserving source IDs."""
@@ -75,7 +80,7 @@ class HybridRetriever:
                 if not content.strip():
                     continue
                 docs.append({
-                    "id": self._window_id(source_ids),
+                    "id": self._window_id(source_ids, "window"),
                     "content": content,
                     "role": "context",
                     "timestamp": center["timestamp"],
@@ -106,7 +111,7 @@ class HybridRetriever:
                 if len(content) > self.WINDOW_MAX_CHARS * 2:
                     content = content[: self.WINDOW_MAX_CHARS * 2]
                 docs.append({
-                    "id": self._window_id(source_ids),
+                    "id": self._window_id(source_ids, "session"),
                     "content": content,
                     "role": "context",
                     "timestamp": members[-1]["timestamp"],
