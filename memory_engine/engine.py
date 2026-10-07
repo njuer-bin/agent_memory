@@ -181,26 +181,58 @@ class MemoryEngine:
                             existing["score"] = float(score)
                             break
 
-        # First pass: original/decomposed queries.  This is intentionally
-        # broader for multi-hop so that the bridge entity can be discovered.
+        # First pass: full/decomposed queries. For multi-hop, every planned
+        # evidence requirement also receives an independent candidate quota.
+        requirement_plans = self.query_analyzer.evidence_requirements(plan) if plan.multi_hop else []
+        requirement_by_id = {r["id"]: r for r in requirement_plans}
+
+        def _merge_candidates(rows, requirement_id=None):
+            for d, score in rows:
+                item = dict(d)
+                item["score"] = float(score)
+                item["_evidence_requirements"] = list(item.get("_evidence_requirements", []))
+                if requirement_id and requirement_id not in item["_evidence_requirements"]:
+                    item["_evidence_requirements"].append(requirement_id)
+                cid = item["id"]
+                if cid not in seen_candidate_ids:
+                    seen_candidate_ids.add(cid)
+                    all_candidates.append(item)
+                else:
+                    for existing in all_candidates:
+                        if existing["id"] == cid:
+                            existing["_evidence_requirements"] = list(dict.fromkeys(
+                                existing.get("_evidence_requirements", []) +
+                                item.get("_evidence_requirements", [])
+                            ))
+                            if score > existing["score"]:
+                                existing["score"] = float(score)
+                            break
+
         for rq in retrieval_queries:
             rows = self.hybrid.candidates(
-                user_id=request.user_id,
-                query=rq,
+                user_id=request.user_id, query=rq,
                 top_k=max(40, request.top_k * 8),
                 include_history=request.include_history or ("历史" in query or "以前" in query or "之前" in query),
-                session_id=request.session_id,
-                start_time=request.start_time,
-                end_time=request.end_time,
-                memory_types=request.memory_types,
-                memory_type_hint=plan.memory_type_hint,
-                temporal_relation=plan.temporal_relation,
-                relation_hint=plan.relation_hint,
-                sparse_query=rq,
-                predicate_hint=plan.predicate_hint,
-                intent_hint=plan.intent_hint,
+                session_id=request.session_id, start_time=request.start_time, end_time=request.end_time,
+                memory_types=request.memory_types, memory_type_hint=plan.memory_type_hint,
+                temporal_relation=plan.temporal_relation, relation_hint=plan.relation_hint,
+                sparse_query=rq, predicate_hint=plan.predicate_hint, intent_hint=plan.intent_hint,
             )
             _merge_candidates(rows)
+
+        if requirement_plans:
+            per_requirement_k = max(24, min(60, request.top_k * 2))
+            for req in requirement_plans:
+                rq = req["query"]
+                rows = self.hybrid.candidates(
+                    user_id=request.user_id, query=rq, top_k=per_requirement_k,
+                    include_history=request.include_history or ("历史" in query or "以前" in query or "之前" in query),
+                    session_id=request.session_id, start_time=request.start_time, end_time=request.end_time,
+                    memory_types=request.memory_types, memory_type_hint=plan.memory_type_hint,
+                    temporal_relation=plan.temporal_relation, relation_hint=plan.relation_hint,
+                    sparse_query=rq, predicate_hint=plan.predicate_hint, intent_hint=plan.intent_hint,
+                )
+                _merge_candidates(rows, req["id"])
 
         candidates = [(x, x["score"]) for x in all_candidates]
         hybrid_ms = (time.perf_counter() - t0) * 1000
@@ -297,6 +329,24 @@ class MemoryEngine:
             predicate_hint=plan.predicate_hint,
             intent_hint=plan.intent_hint,
         )
+        # Protect evidence diversity before EvidenceBuilder truncation.
+        # Seed one strong candidate for each uncovered requirement, then keep
+        # the normal reranker order for the remaining candidates.
+        if requirement_by_id and ranked:
+            ordered = []
+            used = set()
+            for req_id in requirement_by_id:
+                best = next(
+                    (item for item in ranked
+                     if item.get("id") not in used and
+                     req_id in item.get("_evidence_requirements", [])),
+                    None,
+                )
+                if best is not None:
+                    ordered.append(best)
+                    used.add(best.get("id"))
+            ordered.extend(item for item in ranked if item.get("id") not in used)
+            ranked = ordered
         # Evidence completeness: whenever a structured memory survives
         # reranking, explicitly carry its source raw message into the final
         # candidate pool. The benchmark evaluates message-level evidence, so
