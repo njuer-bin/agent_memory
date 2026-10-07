@@ -329,24 +329,75 @@ class MemoryEngine:
             predicate_hint=plan.predicate_hint,
             intent_hint=plan.intent_hint,
         )
-        # Protect evidence diversity before EvidenceBuilder truncation.
-        # Seed one strong candidate for each uncovered requirement, then keep
-        # the normal reranker order for the remaining candidates.
+        # Coverage-aware reranking: candidates retrieved for a specific
+        # requirement must also be judged against that requirement. Otherwise
+        # a candidate can be retrieved correctly (e.g. "John") and then lose
+        # to generic candidates when the whole question is reranked.
         if requirement_by_id and ranked:
+            for item in ranked:
+                req_ids = item.get("_evidence_requirements", []) or []
+                if not req_ids:
+                    continue
+                best_req_score = 0.0
+                for req_id in req_ids:
+                    req = requirement_by_id.get(req_id)
+                    if not req:
+                        continue
+                    req_score = self.reranker.score(req["query"], item.get("content", ""))
+                    best_req_score = max(best_req_score, req_score)
+                item["_requirement_score"] = round(best_req_score, 6)
+                item["score"] = round(
+                    0.70 * float(item.get("score", 0.0))
+                    + 0.30 * best_req_score,
+                    6,
+                )
+
+            # Seed one best candidate for each requirement. This ordering is
+            # consumed by EvidenceBuilder, which now explicitly protects the
+            # requirement coverage slots before global fill.
             ordered = []
             used = set()
             for req_id in requirement_by_id:
-                best = next(
-                    (item for item in ranked
-                     if item.get("id") not in used and
-                     req_id in item.get("_evidence_requirements", [])),
-                    None,
+                best = max(
+                    (
+                        item for item in ranked
+                        if item.get("id") not in used
+                        and req_id in (item.get("_evidence_requirements", []) or [])
+                    ),
+                    key=lambda item: (
+                        float(item.get("_requirement_score", 0.0)),
+                        float(item.get("score", 0.0)),
+                    ),
+                    default=None,
                 )
                 if best is not None:
                     ordered.append(best)
                     used.add(best.get("id"))
             ordered.extend(item for item in ranked if item.get("id") not in used)
             ranked = ordered
+
+            if os.getenv("MEMORY_DIAGNOSTICS", "").strip() == "1":
+                logger.info(
+                    "REQUIREMENT_DIAGNOSTICS %s",
+                    [
+                        {
+                            "id": req_id,
+                            "query": requirement_by_id[req_id]["query"],
+                            "candidates": sum(
+                                1 for item in ranked
+                                if req_id in (item.get("_evidence_requirements", []) or [])
+                            ),
+                            "best_score": max(
+                                [
+                                    float(item.get("_requirement_score", 0.0))
+                                    for item in ranked
+                                    if req_id in (item.get("_evidence_requirements", []) or [])
+                                ] or [0.0]
+                            ),
+                        }
+                        for req_id in requirement_by_id
+                    ],
+                )
         # Evidence completeness: whenever a structured memory survives
         # reranking, explicitly carry its source raw message into the final
         # candidate pool. The benchmark evaluates message-level evidence, so
