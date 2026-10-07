@@ -211,6 +211,46 @@ class MemoryEngine:
         graph_ms = 0.0
 
         if plan.multi_hop and all_candidates:
+            # Deterministic graph bridge seeding: once a structured entity is
+            # discovered, pull every relation directly touching it before the
+            # semantic reranker runs. This prevents a valid next-hop edge such
+            # as "上海属于中国" from being lost because its wording has little
+            # lexical overlap with the original question.
+            relation_rows = self.store.relations(request.user_id)
+            seed_entities = set()
+            for item in all_candidates[:40]:
+                md = item.get("metadata", {}) or {}
+                for key in ("subject", "object", "value", "event"):
+                    value = str(md.get(key) or "").strip()
+                    if value and value not in {"user", "我", "用户"}:
+                        seed_entities.add(value)
+            for rel in relation_rows:
+                subject = str(rel.get("subject") or "").strip()
+                object_ = str(rel.get("object") or "").strip()
+                if not ({subject, object_} & seed_entities):
+                    continue
+                item = {
+                    "id": rel["id"],
+                    "content": rel["content"],
+                    "role": "relation",
+                    "timestamp": rel["timestamp"],
+                    "user_id": request.user_id,
+                    "session_id": "",
+                    "score": 0.030,
+                    "source": "structured_bridge",
+                    "memory_type": "relation",
+                    "status": "active",
+                    "valid_from": rel["timestamp"],
+                    "valid_to": None,
+                    "metadata": {
+                        "subject": subject,
+                        "predicate": rel.get("predicate"),
+                        "object": object_,
+                        "graph_hop": 1,
+                    },
+                }
+                _merge_candidates([(item, item["score"])])
+
             # P5 iterative retrieval: each round extracts entities from the
             # current evidence and uses them as the next-hop query.  This works
             # across sessions because all memories are scoped by user_id, not
