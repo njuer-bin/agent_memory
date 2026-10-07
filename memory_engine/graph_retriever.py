@@ -49,13 +49,15 @@ class GraphRetriever:
         if not rels or not seed_results:
             return []
 
-        # Seed only structured entities; raw sentence text is too broad and can
-        # accidentally turn unrelated lexical matches into graph expansion.
+        # P3 also accepts search-time evidence anchors extracted from raw memories.
         frontier: set[str] = set()
         for item in seed_results:
             md = item.get("metadata", {}) or {}
             for key in ("subject", "object", "value"):
                 value = md.get(key)
+                if value:
+                    frontier.add(str(value).strip())
+            for value in md.get("evidence_anchors", []) or []:
                 if value:
                     frontier.add(str(value).strip())
 
