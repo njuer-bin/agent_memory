@@ -126,6 +126,9 @@ class MemoryAnalyzer:
         (re.compile(r"(?:我的|我)?丈夫\s*([A-Za-z0-9_\u4e00-\u9fff]{1,20})"), "husband"),
     ]
 
+    # Each pattern returns (cause, effect).  Keep direction explicit so
+    # reverse constructions such as "上线推迟是因为项目延期" do not become
+    # an inverted graph edge.
     CAUSAL_PATTERNS = (
         re.compile(r"(?:因为|由于)\s*(.{1,60}?)\s*(?:，|,)?\s*(?:所以|因此|于是)\s*(.{1,60})"),
         re.compile(r"(.{1,40}?)\s*(?:导致|造成|引发|使得)\s*(.{1,40})"),
@@ -244,13 +247,17 @@ class MemoryAnalyzer:
 
         # Causal edges are directed: cause -> effect.  The relation content
         # remains the original sentence so downstream evidence can cite it.
-        for pattern in self.CAUSAL_PATTERNS:
+        for index, pattern in enumerate(self.CAUSAL_PATTERNS):
             for m in pattern.finditer(content):
                 left, right = self._clean(m.group(1)), self._clean(m.group(2))
-                if left and right:
-                    rel = self._relation(user_id, left, "causes", right, m.group(0), timestamp)
-                    if rel:
-                        relations.append(rel)
+                if not left or not right:
+                    continue
+                # Pattern 0/1 are cause -> effect.  Pattern 2 is written as
+                # "effect 是因为 cause" / "effect 源于 cause", so reverse it.
+                cause, effect = (left, right) if index < 2 else (right, left)
+                rel = self._relation(user_id, cause, "causes", effect, m.group(0), timestamp)
+                if rel:
+                    relations.append(rel)
 
         # Deduplicate relation fingerprints inside a single message.
         unique_relations = []
