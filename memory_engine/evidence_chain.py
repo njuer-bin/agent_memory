@@ -13,11 +13,17 @@ class EvidenceChainBuilder:
     """
 
     EDGE_PATTERNS = (
-        re.compile(r"^(.{1,40}?)总部在(.{1,40})[。.!！]?$"),
-        re.compile(r"^(.{1,40}?)(?:在|位于)(.{1,40}?)(?:工作|上班)[。.!！]?$"),
-        re.compile(r"^(.{1,40}?)(?:工作于|就职于)(.{1,40})[。.!！]?$"),
-        re.compile(r"^(.{1,40}?)(?:是|叫|为)\s*([A-Za-z0-9_\u4e00-\u9fff]{1,40})[。.!！]?$"),
-        re.compile(r"^(.{1,40}?)(?:属于|隶属于|来自)(.{1,40})[。.!！]?$"),
+        re.compile(r"^(.{1,40}?)总部\s*(?:在|位于)\s*(.{1,40})$"),
+        re.compile(r"^(.{1,40}?)(?:在|位于)\s*(.{1,40}?)(?:工作|上班)$"),
+        re.compile(r"^(.{1,40}?)(?:工作于|就职于)\s*(.{1,40})$"),
+        re.compile(r"^(.{1,40}?)(?:是|叫|为)\s*(.{1,40})$"),
+        re.compile(r"^(.{1,40}?)(?:属于|隶属于|来自)\s*(.{1,40})$"),
+    )
+
+    FRIEND_PATTERNS = (
+        re.compile(r"^(?:我的|我|用户的)?(?:朋友|同事|老板)\s*(?:是|叫|为)?\s*([A-Za-z0-9_\u4e00-\u9fff]{1,40})$"),
+        re.compile(r"^(?:我的|我|用户的)?(?:朋友|同事|老板)\s+([A-Za-z0-9_\u4e00-\u9fff]{1,40})$"),
+        re.compile(r"^([A-Za-z0-9_\u4e00-\u9fff]{1,40})\s*(?:是|叫|为)\s*(?:我的|我|用户的)?(?:朋友|同事|老板)$"),
     )
 
     STOP = {
@@ -30,8 +36,9 @@ class EvidenceChainBuilder:
 
     @classmethod
     def _clean_entity(cls, value: str) -> str:
-        value = re.sub(r"^[\s，。,:：；;、]+|[\s，。,:：；;、]+$", "", value)
+        value = re.sub(r"^[\s，。,:：；;、!?！？…]+|[\s，。,:：；;、!?！？…]+$", "", value)
         value = re.sub(r"^(?:我的|我|用户的)", "", value)
+        value = re.sub(r"^(?:那个|之前提到的|之前说的)\s*", "", value)
         return value.strip()
 
     @classmethod
@@ -44,12 +51,30 @@ class EvidenceChainBuilder:
             edges.append((subject, obj))
 
         content = str(item.get("content") or "").strip()
-        for pattern in cls.EDGE_PATTERNS:
-            for match in pattern.finditer(content):
-                left = cls._clean_entity(match.group(1))
-                right = cls._clean_entity(match.group(2))
-                if left and right and left not in cls.STOP and right not in cls.STOP:
-                    edges.append((left, right))
+        # Normalize common conversational punctuation first, then inspect each
+        # clause independently. This keeps extraction tolerant without making
+        # the graph depend on one exact sentence template.
+        clauses = [
+            cls._clean_entity(part)
+            for part in re.split(r"[。！？!?；;，,、\n]+", content)
+            if cls._clean_entity(part)
+        ]
+        if not clauses:
+            clauses = [cls._clean_entity(content)]
+
+        for clause in clauses:
+            for pattern in cls.EDGE_PATTERNS:
+                for match in pattern.finditer(clause):
+                    left = cls._clean_entity(match.group(1))
+                    right = cls._clean_entity(match.group(2))
+                    if left and right and left not in cls.STOP and right not in cls.STOP:
+                        edges.append((left, right))
+
+            for pattern in cls.FRIEND_PATTERNS:
+                for match in pattern.finditer(clause):
+                    right = cls._clean_entity(match.group(1))
+                    if right and right not in cls.STOP:
+                        edges.append(("朋友", right))
 
         result = []
         for edge in edges:
