@@ -84,28 +84,29 @@ class EvidenceChainBuilder:
                 out.append(result)
             return out
 
-        # Seed the graph from the strongest retrieved memories. This keeps the
-        # chain builder bounded and prevents unrelated low-score memories from
-        # creating a large temporary graph.
+        # Build connected components from the retrieved relation edges. A
+        # component with >=2 memories is an evidence chain; max_hops is used
+        # below to keep the chain bounded when measuring path completeness.
         seed_ids = list(edges_by_id)[:8]
         connected_ids: set[str] = set()
 
         for seed_id in seed_ids:
-            for left, right in edges_by_id.get(seed_id, []):
-                queue = deque([(left, 0), (right, 0)])
-                seen_nodes = {left, right}
-                path_items = {seed_id}
+            seed_edges = edges_by_id.get(seed_id, [])
+            for left, right in seed_edges:
+                queue = deque([(left, 0)])
+                seen_nodes = {left}
+                component_items = {seed_id}
                 while queue:
                     node, hop = queue.popleft()
                     if hop >= self.max_hops:
                         continue
                     for other, item_id in adjacency.get(node, []):
-                        path_items.add(item_id)
+                        component_items.add(item_id)
                         if other not in seen_nodes:
                             seen_nodes.add(other)
                             queue.append((other, hop + 1))
-                if len(path_items) >= 2:
-                    connected_ids.update(path_items)
+                if len(component_items) >= 2:
+                    connected_ids.update(component_items)
 
         # A connected chain is evidence only when it spans at least two
         # memory fragments. Score is deliberately small: retrieval/reranking
