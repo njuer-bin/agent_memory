@@ -166,13 +166,28 @@ class HybridRetriever:
             intent_bonus = 0.0
             if intent_hint == "habit" and d["memory_type"] == "rule":
                 intent_bonus = 0.010
+
+            # Entity exact-match signal. BM25 sees raw text, while structured
+            # relations store subject/object in metadata.
+            entity_bonus = 0.0
+            if relation_hint or memory_type_hint == "relation":
+                md = d.get("metadata", {}) or {}
+                for key in ("subject", "object", "value"):
+                    entity = str(md.get(key) or "").strip()
+                    if len(entity) >= 2 and entity in query:
+                        entity_bonus = max(entity_bonus, 0.020)
+                        break
+
             active_bonus = 0.0
             if d["memory_type"] == "fact" and d["status"] == "active":
                 active_bonus = 0.005
             conflict_penalty = 0.0
             if d["memory_type"] == "fact" and d.get("metadata", {}).get("conflict_status") == "conflict":
                 conflict_penalty = -0.020
-            structured = score + type_bonus + relation_bonus + predicate_bonus + intent_bonus + active_bonus + conflict_penalty
+            structured = (
+                score + type_bonus + relation_bonus + predicate_bonus
+                + intent_bonus + entity_bonus + active_bonus + conflict_penalty
+            )
             result.append((d, structured))
         result.sort(key=lambda x:x[1], reverse=True)
         rrf_ms = (time.perf_counter() - t_profile) * 1000
