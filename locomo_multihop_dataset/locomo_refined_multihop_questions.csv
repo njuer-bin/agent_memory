@@ -1,0 +1,214 @@
+qa_id,sample_id,category_name,question,answers,is_multi_modality,evidence,num_evidence
+conv-26#q0003,conv-26,multi-hop,What did Caroline research?,Adoption agencies,False,D2:8,1
+conv-26#q0004,conv-26,multi-hop,What is Caroline's identity?,Transgender woman,True,D1:5,1
+conv-26#q0007,conv-26,multi-hop,What is Caroline's relationship status?,Single,False,D3:13 D2:14,2
+conv-26#q0011,conv-26,multi-hop,Where did Caroline move from 4 years ago?,Sweden,False,D3:13 D4:3,2
+conv-26#q0013,conv-26,multi-hop,What career path has Caroline decided to persue?,counseling or mental health for Transgender people,False,D4:13 D1:11,2
+conv-26#q0016,conv-26,multi-hop,Where has Melanie camped?,"beach, mountains, forest",True,D6:16 D4:6 D8:32,3
+conv-26#q0028,conv-26,multi-hop,What did Melanie paint recently?,sunset,False,D8:6; D9:17,1
+conv-26#q0029,conv-26,multi-hop,In what ways is Caroline participating in the LGBTQ community?,"Joining activist group, going to pride parades, participating in an art show, mentoring program",False,D10:3 D5:1 D9:12 D9:2,4
+conv-26#q0030,conv-26,multi-hop,How many times has Melanie gone to the beach in 2023?,2,True,D10:8 D6:16,2
+conv-26#q0036,conv-26,multi-hop,Who supports Caroline when she has a negative experience?,"Her mentors, family, and friends",True,D12:1 D3:11,2
+conv-26#q0038,conv-26,multi-hop,What are Melanie's pets' names?,"Oliver, Luna, Bailey",True,D13:4 D7:18,2
+conv-26#q0041,conv-26,multi-hop,What subject have Caroline and Melanie both painted?,Sunsets,True,D14:5 D8:6,2
+conv-26#q0042,conv-26,multi-hop,What symbols are important to Caroline?,Rainbow flag | eagle symbol,True,D14:15 D4:1,2
+conv-26#q0045,conv-26,multi-hop,What instruments does Melanie play?,clarinet and violin,False,D15:26 D2:5,2
+conv-26#q0046,conv-26,multi-hop,What musical artists/bands has Melanie seen?,"Summer Sounds, Matt Patterson",False,D15:16 D11:3,2
+conv-26#q0050,conv-26,multi-hop,What are some changes Caroline has faced during her transition journey?,"Changes to her body | Changes to her body, losing unsupportive friends",False,D16:15 D11:14,2
+conv-26#q0051,conv-26,multi-hop,What does Melanie do with her family on hikes?,"Roast marshmallows, tell stories",True,D16:4 D10:12,2
+conv-26#q0054,conv-26,multi-hop,What transgender-specific events has Caroline attended?,"Transgender Poetry reading, conference | Poetry reading, conference | Transgender Poetry reading and counseling workshop",True,D17:19 D15:13,2
+conv-26#q0055,conv-26,multi-hop,What book did Melanie read from Caroline's suggestion?,"""Becoming Nicole""",True,D7:11 D17:10,2
+conv-26#q0059,conv-26,multi-hop,How many children does Melanie have?,3,True,D18:1 D18:7,2
+conv-26#q0060,conv-26,multi-hop,When did Melanie go on a hike after the roadtrip?,19 October 2023,False,D18:17,1
+conv-26#q0062,conv-26,multi-hop,What items has Melanie bought?,"Figurines, shoes",True,D19:2 D7:18,2
+conv-26#q0128,conv-26,multi-hop,What books has Melanie read?,"""Nothing is Impossible"", ""Charlotte's Web""",True,D7:8 D6:10,2
+conv-26#q0130,conv-26,multi-hop,What kind of art does Caroline make?,abstract art,True,D11:12 D11:8 D9:14,3
+conv-30#q0003,conv-30,multi-hop,What do Jon and Gina both have in common?,"They lost their jobs and decided to start their own businesses. | They lost their jobs, decided to start their own businesses, and share a strong passion for dance. | They lost their jobs, decided to start their own businesses, and are pursuing entrepreneurial ventures driven by their shared passion for dance.",False,D1:2 D1:3 D1:4 D2:1,4
+conv-30#q0005,conv-30,multi-hop,What Jon thinks the ideal dance studio should look like?,"By the water, with natural light and Marley flooring",True,D1:20 D2:4 D2:8,3
+conv-30#q0009,conv-30,multi-hop,Which city have both Jean and John visited?,Rome,False,D2:5 D15:1,2
+conv-30#q0015,conv-30,multi-hop,Do Jon and Gina start businesses out of what they love?,Yes,False,D1:4 D6:8,2
+conv-30#q0018,conv-30,multi-hop,Which events has Jon participated in to promote his business venture?,"fair, networking events",True,D10:1 D16:6 D8:4,3
+conv-30#q0019,conv-30,multi-hop,What does Jon's dance studio offer?,"one-on-one metoring and training to dancers, workshops and classes to local schools and centers",False,D13:7 D8:13,2
+conv-30#q0021,conv-30,multi-hop,Did Jon and Gina both participate in dance competitions?,Yes,True,D1:14 D14:14 D1:16 D1:17 D9:10,5
+conv-30#q0023,conv-30,multi-hop,Which cities has Jon visited?,"Paris, Rome",True,D2:4 D15:1,2
+conv-30#q0025,conv-30,multi-hop,How long did it take for Jon to open his studio?,five months,False,D1:2 D15:13,2
+conv-41#q0002,conv-41,multi-hop,What martial arts has John done?,"Kickboxing, Taekwondo",False,D2:28 D1:4,2
+conv-41#q0003,conv-41,multi-hop,What type of volunteering have John and Maria both done?,Volunteering at a homeless shelter,False,D3:5 D2:1,2
+conv-41#q0006,conv-41,multi-hop,Where has Maria made friends?,"homeless shelter, gym, church",False,D4:1 D2:1 D19:1 D14:10,4
+conv-41#q0007,conv-41,multi-hop,What items does John mention having as a child?,"A doll, a film camera",False,D5:13 D3:15,2
+conv-41#q0008,conv-41,multi-hop,Who gave Maria's family money when she was younger and her family was going through tough times?,Her aunt,False,D6:9 D5:8,2
+conv-41#q0009,conv-41,multi-hop,What test has John taken multiple times?,The military aptitude test,False,D8:18 D3:11,2
+conv-41#q0012,conv-41,multi-hop,What writing classes has Maria taken?,"Poetry, creative writing",False,D9:1 D7:1,2
+conv-41#q0014,conv-41,multi-hop,Who did John go to yoga with?,Rob,False,D7:16 D10:1,2
+conv-41#q0015,conv-41,multi-hop,What damages have happened to John's car?,"Broken windshield, Car broke down",True,D11:1 D4:2,2
+conv-41#q0017,conv-41,multi-hop,What areas of the U.S. has John been to or is planning to go to?,"Pacific northwest, east coast",False,D11:5 D12:17,2
+conv-41#q0020,conv-41,multi-hop,What European countries has Maria been to?,"Spain, England",True,D13:24 D8:15,2
+conv-41#q0021,conv-41,multi-hop,What has Maria done to feel closer to her faith?,"Join a local church, buy a cross necklace",False,D14:10 D11:10,2
+conv-41#q0023,conv-41,multi-hop,What events is Maria planning for the homeless shelter funraiser?,"Chili cook-off, ring-toss tournament",True,D16:4 D15:18,2
+conv-41#q0024,conv-41,multi-hop,What shelters does Maria volunteer at?,"The homeless shelter, the dog shelter",False,D2:1 D11:10 D17:12,3
+conv-41#q0026,conv-41,multi-hop,What outdoor activities has John done with his colleagues?,"Hiking, mountaineering",True,D18:2 D16:2,2
+conv-41#q0027,conv-41,multi-hop,What types of yoga has Maria practiced?,"Aerial, kundalini",False,D1:3 D18:15 D19:3,3
+conv-41#q0029,conv-41,multi-hop,What states has Maria vacationed at?,"Oregon, Florida",True,D19:23 D18:3,2
+conv-41#q0030,conv-41,multi-hop,What music events has John attended?,"Live music event, violin concert",False,D20:4 D8:12,2
+conv-41#q0032,conv-41,multi-hop,What are the names of John's children?,"Kyle, Sara",False,D8:4 D22:7,2
+conv-41#q0034,conv-41,multi-hop,What area was hit by a flood?,West County,False,D14:21 D23:1,2
+conv-41#q0037,conv-41,multi-hop,What food item did Maria drop off at the homeless shelter?,Cakes | bake stuff,False,D26:1 D25:19,2
+conv-41#q0039,conv-41,multi-hop,Who have written notes of gratitude to Maria?,"Cindy, Laura",False,D27:8 D21:19,2
+conv-41#q0046,conv-41,multi-hop,What are Maria's dogs' names?,"Coco, Shadow",True,D30:1 D31:4,2
+conv-42#q0007,conv-42,multi-hop,What emotions is Joanna feeling about  the screenplay she submitted?,"Relief, excitement,worry(anxiety) and hope",False,D2:7 D3:1,2
+conv-42#q0008,conv-42,multi-hop,What is Joanna allergic to?,"Most reptiles, animals with fur, cockroaches, and dairy. | Most reptiles, animals with fur, cockroaches, dairy",False,D2:23 D4:4 D5:11,3
+conv-42#q0014,conv-42,multi-hop,How many times has Joanna found new hiking trails?,twice,False,D8:4 D11:3,2
+conv-42#q0021,conv-42,multi-hop,What places has Joanna submitted her work to?,"film contest, film festival.",False,D2:7 D16:1,2
+conv-42#q0027,conv-42,multi-hop,What book recommendations has Joanna given to Nate?,"\""Little Women\"",'A Court of Thorns and Roses'. | \""Little Women\"" and a fantasy book series to Nate.",False,D3:17 D19:14 D19:16,3
+conv-42#q0035,conv-42,multi-hop,What movies have both Joanna and Nate seen?,"""Little Women"", ""Lord of the Rings""",False,D3:17 D10:1 D22:8,3
+conv-42#q0039,conv-42,multi-hop,What board games has Nate played?,"Chess, Catan.",True,D16:2 D23:7,2
+conv-42#q0040,conv-42,multi-hop,What places has Nate met new people?,A tournament and agaming convention.,True,D14:8 D23:1,2
+conv-42#q0042,conv-42,multi-hop,How many times has Joanna's scripts been rejected?,Twice,False,D14:1 D24:12,2
+conv-42#q0043,conv-42,multi-hop,What is something Nate gave to Joanna that brings her a lot of joy?,stuffed toy pup,True,D13:9 D24:2,2
+conv-42#q0044,conv-42,multi-hop,When did Nate get Tilly for Joanna?,"25 May, 2022",True,D13:9 D24:2,2
+conv-42#q0045,conv-42,multi-hop,How many of Joanna's writing have made it to the big screen?,two,False,D15:1 D25:2,2
+conv-42#q0047,conv-42,multi-hop,What animal do both Nate and Joanna like?,Turtles. | Turtles and dogs.,True,D5:6 D26:9,2
+conv-42#q0049,conv-42,multi-hop,How many letters has Joanna recieved?,Two,True,D14:1 D18:5,2
+conv-42#q0050,conv-42,multi-hop,What video games does Nate play?,"Valorant, Counter Strike:Global Offensive,Xenoblade Chronicles, StreetFighter, Cyberpunk 2077",True,D10:6 D27:1 D27:23 D1:7 D23:17,5
+conv-42#q0053,conv-42,multi-hop,What pets does Nate have?,A dog and threeturtles.,True,D8:3 D12:3 D28:23,3
+conv-42#q0055,conv-42,multi-hop,How many turtles does Nate have?,Three,True,D8:3 D28:23,2
+conv-42#q0056,conv-42,multi-hop,What do both Joanna and Nate appreciate the beauty of?,Nature,True,D11:9 D28:23,2
+conv-42#q0059,conv-42,multi-hop,What are Nate's favorite desserts?,coconut milk ice cream and dairy-free chocolate mousse,True,D3:4 D3:10 D21:10 D3:12,4
+conv-42#q0060,conv-42,multi-hop,How has Nate tried to disburse his vegan ice-cream recipes?,"teaching others, cooking show",True,D18:8 D21:4,2
+conv-42#q0062,conv-42,multi-hop,How many screenplays has Joanna written?,three | At least three,True,D2:3 D4:10 D5:1 D12:13 D12:14,5
+conv-42#q0063,conv-42,multi-hop,How many tournaments has Nate won?,seven,True,D1:3 D10:4 D14:8 D17:1 D19:1 D22:2 D27:1,7
+conv-42#q0064,conv-42,multi-hop,What recipes has Nate made?,"coconut milk icecream, chocolate and vanilla swirl, vegan ice cream",True,D3:4 D4:3,2
+conv-42#q0065,conv-42,multi-hop,What are the skills that Nate has helped others learn?,"coconut milk ice cream recipe, reset high scores, tips to improve gaming skills | Nate has helped others learn gaming skills and dairy-free dessert recipes.",True,D18:8 D26:12 D14:16,3
+conv-42#q0178,conv-42,multi-hop,How many video game tournaments has Nate won?,seven,True,D1:3 D10:4 D14:8 D17:1 D19:1 D22:2 D27:1,7
+conv-43#q0000,conv-43,multi-hop,what are John's goals with regards to his basketball career?,"improve shooting percentage, win a championship",True,D1:9 D6:15 D11:17,3
+conv-43#q0001,conv-43,multi-hop,What are John's goals for his career that are not related to his basketball skills?,"get endorsements, build his brand, do charity work",False,D6:15 D11:17,2
+conv-43#q0004,conv-43,multi-hop,Which endorsement deals has John been offered?,"basketball shoes and gear deal with Nike, potential sponsorship with Gatorade, a popular beverage company",True,D3:13 D3:15 D25:2 D29:4,4
+conv-43#q0006,conv-43,multi-hop,What sports does John like besides basketball?,surfing,True,D1:7 D2:14 D3:1 D3:25,4
+conv-43#q0008,conv-43,multi-hop,What does Tim do to escape reality?,Read fantasy books.,True,D2:11 D3:30,2
+conv-43#q0009,conv-43,multi-hop,What kind of writing does Tim do?,"articles on fantasy novels, studying characters, themes, and making book recommendations, writing a fantasy novel",False,D2:1 D4:3 D4:5 D15:3,4
+conv-43#q0010,conv-43,multi-hop,How many games has John mentioned winning?,6,True,D3:3 D5:2 D22:4 D23:7 D24:2,5
+conv-43#q0012,conv-43,multi-hop,Which US cities does John mention visiting to Tim?,"Seattle, Chicago, New York",True,D3:19 D6:3 D9:6,3
+conv-43#q0016,conv-43,multi-hop,What similar sports collectible do Tim and John own?,signed basketball,True,D7:7 D7:9 D16:7 D16:9,4
+conv-43#q0017,conv-43,multi-hop,Which TV series does Tim mention watching?,Wheel of Time,False,D17:1 D17:11 D26:36,3
+conv-43#q0022,conv-43,multi-hop,What outdoor activities does John enjoy?,"Hiking, surfing",False,D3:27 D12:6,2
+conv-43#q0023,conv-43,multi-hop,Who is Tim and John's favorite basketball player?,LeBron James,False,D12:20 D12:22 D16:9,3
+conv-43#q0025,conv-43,multi-hop,which country has Tim visited most frequently in his travels?,UK,True,D1:18 D13:1 D18:1,3
+conv-43#q0028,conv-43,multi-hop,What kind of fiction stories does Tim write?,Fantasy stories with plot twists,False,D15:3 D16:1,2
+conv-43#q0029,conv-43,multi-hop,What has John cooked?,"Soup, a slow cooker meal, and honey garlic chicken with roasted veg.",True,D10:4 D15:30 D15:31 D15:32,4
+conv-43#q0030,conv-43,multi-hop,What does John like about Lebron James?,"His heart, determination, skills, and leadership.",False,D12:20 D16:12,2
+conv-43#q0035,conv-43,multi-hop,When did John get an ankle injury in 2023?,"around November 16, 2023 | November, 2023",True,D18:2,1
+conv-43#q0036,conv-43,multi-hop,Which book was John reading during his recovery from an ankle injury?,The Alchemist,True,D19:20 D18:2,2
+conv-43#q0037,conv-43,multi-hop,What does John do to supplement his basketball training?,"Yoga, strength training",True,D8:5 D20:2,2
+conv-43#q0040,conv-43,multi-hop,What instruments does Tim play?,"piano, violin",True,D8:12 D21:11,2
+conv-43#q0042,conv-43,multi-hop,Which career-high performances did John achieve in 2023?,"highest point score, highest assist",True,D3:1 D23:2,2
+conv-43#q0044,conv-43,multi-hop,What does John do to share his knowledge?,"gives seminars, mentors younger players.",True,D14:3 D26:1,2
+conv-43#q0047,conv-43,multi-hop,What fantasy movies does Tim like?,"Lord of the Rings, Harry Potter, and Star Wars.",True,D8:16 D8:18 D26:28 D26:32 D27:21,5
+conv-44#q0007,conv-44,multi-hop,What kind of classes or groups has Audrey joined to take better care of her dogs?,"positive reinforcement training workshop to bond with pets, dog training course, agility training course, grooming course, dog-owners group",True,D6:2 D10:1 D14:2 D16:6 D27:2,5
+conv-44#q0011,conv-44,multi-hop,What is something that Andrew really misses while working in the city?,being in nature,False,D3:7 D9:20,2
+conv-44#q0012,conv-44,multi-hop,What is a shared frustration regarding dog ownership for Audrey and Andrew?,Not being able to find pet friendly spots.,True,D7:8 D10:5,2
+conv-44#q0013,conv-44,multi-hop,How many times did Audrey and Andew plan to hike together?,three times,True,D11:7 D24:13 D26:20,3
+conv-44#q0014,conv-44,multi-hop,Where did Audrey get Pixie from?,breeder | Audrey got Pixie from an adoption.,True,D11:4 D2:1,2
+conv-44#q0016,conv-44,multi-hop,What are the classes that Audrey took for her dogs to?,"Positive reinforcement training class for bonding, dog training course, agility class",True,D6:4 D10:1 D14:2,3
+conv-44#q0018,conv-44,multi-hop,What are some problems that Andrew faces before he adopted Toby?,Finding the right dog and pet-friendly apartments close to open spaces,False,D2:12 D5:3 D5:5 D5:7,4
+conv-44#q0019,conv-44,multi-hop,Did Audrey and Andrew grow up with a pet dog?,Yes,True,D2:16 D13:10,2
+conv-44#q0021,conv-44,multi-hop,What is the biggest stressor in Andrew's life besides not being able to hike frequently?,work,True,D12:3 D16:1 D18:1 D10:16,4
+conv-44#q0022,conv-44,multi-hop,How does Andrew feel about his current work?,Stressful,True,D12:3 D16:1 D18:1 D10:16,4
+conv-44#q0023,conv-44,multi-hop,What is something that Audrey often dresses up her dogs with?,Hats,True,D4:23 D4:25 D19:6,3
+conv-44#q0024,conv-44,multi-hop,What are the names of Audrey's dogs?,"Pepper, Precious, Panda, and Pixie",True,D1:7 D2:1 D19:12,3
+conv-44#q0026,conv-44,multi-hop,What has Andrew done with his dogs?,Taking walks and hiking,False,D14:27 D24:8,2
+conv-44#q0027,conv-44,multi-hop,What kind of tattoo does Audrey have on her arm?,Tattoos of her four dogs.,True,D3:26 D15:1 D23:20,3
+conv-44#q0029,conv-44,multi-hop,What are the names of Andrew's dogs?,"Toby, Scout, Buddy",True,D12:1 D24:6 D28:8,3
+conv-44#q0030,conv-44,multi-hop,What are some foods that Audrey likes eating?,"chicken pot pie, chicken roast, blueberry muffins, sushi",True,D3:18 D10:13 D10:23 D25:6,4
+conv-44#q0033,conv-44,multi-hop,What did Audrey get wtih having so many dogs?,Companionship,True,D2:15 D23:18,2
+conv-44#q0034,conv-44,multi-hop,What is a good place for dogs to run around freely and meet new friends?,The dog park,True,D4:25 D14:2 D23:10,3
+conv-44#q0035,conv-44,multi-hop,What are the breeds of Audrey's dogs?,Mongrel mixed with Lab for Pepper and Panda. Mongrel mixed with Chihuahua for Precious and Pixie.,True,D19:12 D26:13,2
+conv-44#q0036,conv-44,multi-hop,What technique is Audrey using to discipline her dogs?,Positive reinforcement,False,D6:4 D26:5,2
+conv-44#q0040,conv-44,multi-hop,What does Andrew view his pets as?,Family,True,D15:14 D28:18,2
+conv-44#q0041,conv-44,multi-hop,What does Audrey view her pets as?,Family,True,D15:15 D23:18,2
+conv-44#q0042,conv-44,multi-hop,What is a skill that Audrey learned to take care of her dogs?,Grooming,False,D16:2 D17:4,2
+conv-44#q0043,conv-44,multi-hop,What items has Audrey bought or made for her dogs?,"dog tags, toys, dog beds, collars",True,D1:2 D9:5 D18:10 D24:1,4
+conv-44#q0044,conv-44,multi-hop,What activity do Audrey's dogs like to do in the dog park?,"Play fetch with ball and frisbee, run around and meet other dogs",True,D4:21 D10:7 D13:8 D23:14 D27:12,5
+conv-44#q0045,conv-44,multi-hop,Has Andrew moved into a new apartment for his dogs?,No,False,D5:5 D28:12,2
+conv-44#q0049,conv-44,multi-hop,How many dogs does Andrew have?,3,True,D12:1 D24:2 D28:6,3
+conv-47#q0001,conv-47,multi-hop,Do both James and John have pets?,No,True,D1:12 D2:18,2
+conv-47#q0003,conv-47,multi-hop,What are John and James' favorite games?,"John's favorite game is CS:GO, and James's is Apex Legends.",True,D3:11 D4:16,2
+conv-47#q0004,conv-47,multi-hop,How many pets does James have?,Three dogs.,True,D1:12 D1:14 D5:1,3
+conv-47#q0005,conv-47,multi-hop,What are the names of James's dogs?,"Ned, Daisy, Max",True,D1:14 D5:1,2
+conv-47#q0011,conv-47,multi-hop,Which books has John recommended to James?,"The Name of the Wind, Stormlight Archive, Kingkiller Chronicles, Expanse",False,D8:14 D14:10,2
+conv-47#q0012,conv-47,multi-hop,How many charity tournaments has John organized till date?,two,True,D10:2 D29:1,2
+conv-47#q0014,conv-47,multi-hop,Who or which organizations have been the beneficiaries of John's charity tournaments?,"animal shelter, homeless, children's hospital",False,D10:10 D10:12 D29:1,3
+conv-47#q0016,conv-47,multi-hop,Which countries has James visited?,"Italy, Mexico, Turkey, Canada, Greenland",False,D6:12 D6:14 D16:9 D17:22,4
+conv-47#q0022,conv-47,multi-hop,Which countries did James visit in July 2022?,"Canada, Greenland",False,D16:9 D17:22,2
+conv-47#q0026,conv-47,multi-hop,What happened to John's job situation in 2022?,"quit his IT Job, secured his dream job, aspires to become an eSports competition organizer",False,D13:3 D18:1 D18:7,3
+conv-47#q0032,conv-47,multi-hop,What kind of beer does McGee's bar serve?,"Stout, light beers, and lager",False,D21:15 D21:17 D23:3,3
+conv-47#q0036,conv-47,multi-hop,What gaming equipments did John buy or refurbish?,"Sennheiser headphones, Logitech mouse, gaming desk",True,D23:8 D23:10 D20:9,3
+conv-47#q0038,conv-47,multi-hop,Which new games did John start play during the course of the conversation with James?,"AC Valhalla, Witcher 3, FIFA 23, Dungeons of the Dragons, futuristic dystopian game",True,D5:4 D19:7 D30:14 D24:1 D24:3 D8:20,6
+conv-47#q0040,conv-47,multi-hop,What kind of programming-related events has John hosted?,"online programming competition, programming seminar",True,D27:1 D28:6,2
+conv-47#q0042,conv-47,multi-hop,Which of James's family members have visited him in the last year?,"mother, sister",True,D17:28 D28:19,2
+conv-47#q0046,conv-47,multi-hop,What games has John played with his friends at charity tournaments?,"CS:GO, Fortnite, Overwatch and Apex Legends",False,D10:4 D29:1 D29:3,3
+conv-48#q0006,conv-48,multi-hop,What helped Deborah find peace when grieving deaths of her loved ones?,"yoga, old photos, the roses and dahlias in a flower garden, nature",True,D1:15 D2:3 D6:4 D15:29,4
+conv-48#q0011,conv-48,multi-hop,What places give Deborah peace?,"sitting in a spot by the window in her Mom's house, sitting by the beach, Bali, forest trail in a nearby park",True,D2:13 D4:34 D6:10 D19:17,4
+conv-48#q0012,conv-48,multi-hop,What were Deborah's mother's hobbies?,"reading, traveling, art, cooking",True,D2:17 D2:19 D12:3 D29:7,4
+conv-48#q0017,conv-48,multi-hop,How many times has Jolene been to France?,two times,True,D2:24 D1:8,2
+conv-48#q0018,conv-48,multi-hop,Which games have Jolene and her partner played together?,"Detroit, Walking Dead, Battlefield 1, It Takes Two, Overcooked 2",True,D2:26 D2:30 D20:1 D15:10 D19:10,5
+conv-48#q0022,conv-48,multi-hop,What new yoga poses did Deborah try?,"Warrior II, Dancer Pose (Natarajasana), Tree pose",True,D4:14 D14:3 D14:15,3
+conv-48#q0036,conv-48,multi-hop,What time management techniques do Deborah and Jolene use?,"the Pomodoro Technique - 25 minutes work and 5-minute break, scheduler or to-do list, The Eisenhower Matrix, bullet journal",True,D10:4 D10:5 D10:6 D10:13 D18:3,5
+conv-48#q0038,conv-48,multi-hop,What ways do Deborah and Jolene use to enhance their yoga practice?,"candles, music, essential oils",True,D11:4 D11:7 D28:16 D28:18,4
+conv-48#q0068,conv-48,multi-hop,Did Jolene teach herself how to play the console?,yes,True,D2:28 D24:8,2
+conv-48#q0073,conv-48,multi-hop,Has Deborah tried surfing?,yes,True,D28:11 D29:25,2
+conv-48#q0074,conv-48,multi-hop,Has Jolene tried surfing?,no,False,D10:20 D29:26 D29:30,3
+conv-48#q0076,conv-48,multi-hop,What kind of engineering projects has Jolene worked on?,"electrical engineering, robotics, sustainable water purifier, productive and affordable aerial surveillance system",True,D1:2 D3:1 D4:5 D17:10 D17:12,5
+conv-48#q0077,conv-48,multi-hop,Which community activities have Deborah and Anna participated in?,"yoga, running",True,D4:12 D4:16 D15:1,3
+conv-48#q0078,conv-48,multi-hop,Which countries has Deborah traveled to?,"Thailand, Brazil",True,D6:10 D23:18,2
+conv-49#q0000,conv-49,multi-hop,What kind of car does Evan drive?,Prius,True,D1:2 D1:4 D18:1 D18:3 D22:2,5
+conv-49#q0001,conv-49,multi-hop,What kinds of things did Evan have broken?,His old Prius and his new Prius.,True,D18:1 D18:2 D18:3 D1:2 D1:4,5
+conv-49#q0002,conv-49,multi-hop,Where has Evan been on roadtrips with his family?,"Rockies, Jasper",True,D1:2 D1:4 D2:1,3
+conv-49#q0003,conv-49,multi-hop,How many Prius has Evan owned?,two,True,D1:2 D1:4,2
+conv-49#q0006,conv-49,multi-hop,How many roadtrips did Evan take in May 2023?,two,True,D1:4 D2:1,2
+conv-49#q0007,conv-49,multi-hop,What hobby did Evan start practicing a few years ago that he enjoys?,Watercolor painting,True,D1:14 D1:16 D8:13 D8:14,4
+conv-49#q0010,conv-49,multi-hop,What health issue did Sam face that motivated him to change his lifestyle?,Weight problem,True,D2:6 D3:4 D24:12 D24:14 D5:5 D6:2 D7:2 D7:12 D8:1 D10:6 D12:1 D13:2 D14:1 D15:1 D16:3 D17:3 D24:20 D25:1 D25:3,19
+conv-49#q0012,conv-49,multi-hop,What is Evan's favorite food?,Ginger snaps,True,D3:3 D5:5 D23:15 D22:12,4
+conv-49#q0013,conv-49,multi-hop,What kind of unhealthy snacks does Sam enjoy eating?,"soda, candy",False,D3:4,1
+conv-49#q0014,conv-49,multi-hop,What recurring issue frustrates Sam at the grocery store?,Malfunctioning self-checkout machines.,False,D3:16 D22:19,2
+conv-49#q0016,conv-49,multi-hop,What kind of healthy food suggestions has Evan given to Sam?,"flavored seltzer water, dark chocolate with high cocoa content, air-popped popcorn and fruit, veggies, healthy sandwich snacks, energy balls, grilled chicken salad with avocado",True,D3:5 D4:10 D22:10 D22:14 D24:15,5
+conv-49#q0018,conv-49,multi-hop,How does Evan describe the woman and his feelings for her that he met in Canada?,"He says she's cool, incredible, like something out of a movie, and that he feels alive around her. Every moment with her is fun and energetic, also Evan feels really lucky to have someone who gets him.",True,D5:1 D5:3 D23:3,3
+conv-49#q0023,conv-49,multi-hop,What kind of writing does Sam do to relax and cope with his health issues?,"journalling, creative writing",True,D6:4 D11:7,2
+conv-49#q0024,conv-49,multi-hop,"Who did Evan meet on his trip to Canada, and who did he come back from Canada with?",Evan met the woman he fell in love with and returned with her.,True,D5:1 D6:1,2
+conv-49#q0026,conv-49,multi-hop,What recurring frustration does Evan experience?,Evan consistently misplaces his keys every week.,False,D6:13 D21:20,2
+conv-49#q0027,conv-49,multi-hop,What is the recurring dream that Sam keeps having?,he's flying over a cityscape.,False,D6:14 D24:22,2
+conv-49#q0028,conv-49,multi-hop,What accidents has Evan's son faced lately?,"injured at a soccer game, fell off his bike",True,D7:1 D20:3,2
+conv-49#q0034,conv-49,multi-hop,How did Evan get into painting?,His friend got him into it by gifting him a painting and giving him some advice. The painting inspired Evan.,True,D1:14 D1:15 D1:16 D8:14,4
+conv-49#q0038,conv-49,multi-hop,Who was injured in Evan's family?,Evan's son and Evan himself,True,D7:1 D7:9 D7:10 D9:2 D11:2 D11:3,6
+conv-49#q0042,conv-49,multi-hop,What recurring adventure does Evan have with strangers?,Helping lost tourists and experiencing unexpected adventures in the city.,False,D11:6 D14:2,2
+conv-49#q0043,conv-49,multi-hop,What is Sam's persistent problem with his phone?,"His new phone malfunctioning, particularly with the navigation app.",False,D11:15 D14:1,2
+conv-49#q0049,conv-49,multi-hop,Which ailment does Sam have to face due to his weight?,gastritis,False,D2:6 D7:2 D12:1 D14:1,4
+conv-49#q0054,conv-49,multi-hop,Which two significant life events occur in Evan's life in December 2023 with his partner?,his partner gets pregnant and they get married,True,D19:1 D21:2,2
+conv-49#q0056,conv-49,multi-hop,Which activity did Sam resume in December 2023 after a long time?,hiking,True,D20:6 D22:1,2
+conv-49#q0061,conv-49,multi-hop,How does Evan spend his time with his bride after the wedding?,"family get-together, honeymoon in Canada to see snowy landscapes, ski, taste local cuisine and do some snowshoeing",True,D23:15 D23:23 D23:25 D24:9,4
+conv-49#q0062,conv-49,multi-hop,Who did Evan tell about his marriage?,"To Sam, to his friends from work, and to his and his wife's families.",True,D21:2 D22:4 D22:5 D23:1 D23:5,5
+conv-50#q0001,conv-50,multi-hop,What items did Calvin buy in March 2023?,"mansion in Japan, luxury car Ferrari 488 GTB | mansion in Japan and a new car",True,D1:3 D2:1,2
+conv-50#q0003,conv-50,multi-hop,Which bands has Dave enjoyed listening to?,"Aerosmith, The Fireworks | Aerosmith",True,D2:10 D23:9,2
+conv-50#q0005,conv-50,multi-hop,What are Dave's dreams?,"open a car maintenance shop, work on classic cars, build a custom car from scratch",False,D4:5 D4:5 D5:5,3
+conv-50#q0006,conv-50,multi-hop,Which types of cars does Dave like the most?,classic vintage cars,True,D4:5 D1:2 D3:12 D4:7,4
+conv-50#q0010,conv-50,multi-hop,What mishaps has Calvin run into?,"flooding of his mansion, car accident",True,D6:1 D9:1,2
+conv-50#q0014,conv-50,multi-hop,Why does Dave regularly visit parks?,because it relaxes and calms him,True,D8:4 D1:16,2
+conv-50#q0017,conv-50,multi-hop,How many times has Calvin had to deal with insurance paperwork?,two times,True,D6:5 D9:1,2
+conv-50#q0018,conv-50,multi-hop,Which places or events has Calvin visited in Tokyo?,music festival,True,D3:1 D12:7 D24:19,3
+conv-50#q0019,conv-50,multi-hop,Who inspired Dave's passion for car engineering?,His Dad,False,D12:2 D12:4 D26:6,3
+conv-50#q0021,conv-50,multi-hop,Does Calvin want to expand his brand?,yes,True,D12:11 D18:7,2
+conv-50#q0022,conv-50,multi-hop,What is Dave's main passion?,auto engineering,True,D13:3 D5:5 D4:5 D3:12,4
+conv-50#q0023,conv-50,multi-hop,Can Dave work with engines?,yes,True,D13:7 D22:5 D20:1,3
+conv-50#q0026,conv-50,multi-hop,What kind of music does Dave listen to?,"classic rock, Japanese music",True,D2:10 D28:40 D10:11,3
+conv-50#q0028,conv-50,multi-hop,Where did Dave return from with new knowledge of different techniques of car restoration?,San Francisco,False,D17:1 D14:1,2
+conv-50#q0029,conv-50,multi-hop,What was Dave doing in San Francisco?,attending a car modification workshop,False,D17:1 D14:1,2
+conv-50#q0035,conv-50,multi-hop,What was the artists Calvin used to listen to when he was a kid?,Tupac and Dr. Dre,False,D20:8 D20:6,2
+conv-50#q0036,conv-50,multi-hop,Which of their family member do Calvin and Dave have nostalgic memories about?,Dad,False,D12:2 D20:6,2
+conv-50#q0040,conv-50,multi-hop,What is Dave's favorite activity?,Restoring cars,True,D21:4 D22:7 D19:7,3
+conv-50#q0041,conv-50,multi-hop,"When Dave was a child, what did he and his father do in the garage?","tinkering with car engines, restoration and refurbishing cars",False,D12:2 D12:4 D22:5,3
+conv-50#q0044,conv-50,multi-hop,Who supports Calvin in tough times?,friends and team,True,D25:6 D29:7,2
+conv-50#q0045,conv-50,multi-hop,What does help Calvin stay connected to the creative process?,"watch music videos, concerts, and documentaries about artists and their creative process",False,D25:8 D28:31,2
+conv-50#q0047,conv-50,multi-hop,Which cities did Dave travel to in 2023?,"San Francsico, Detroit",False,D14:1 D26:2,2
+conv-50#q0049,conv-50,multi-hop,How many Ferraris does Calvin own?,two,True,D2:1 D23:16,2
+conv-50#q0050,conv-50,multi-hop,What gifts has Calvin received from his artist friends?,"gold chain, custom-made guitar with an octopus on it",True,D4:24 D4:26 D16:14,3
+conv-50#q0052,conv-50,multi-hop,Do all of Dave's car restoration projects go smoothly?,No,True,D27:10 D13:7 D25:17 D20:1,4
+conv-50#q0139,conv-50,multi-hop,What style of guitars does Calvin own?,"custom-made yellow guitar with an octopus on it, shiny purple guitar",True,D16:13 D16:4 D16:18 D16:19,4
