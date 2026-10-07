@@ -28,6 +28,16 @@ class QueryAnalyzer:
         "谁推荐", "谁介绍", "朋友的", "同事的", "他的", "她的",
         "他们", "那个", "之前提到", "基于", "根据", "为什么",
         "和谁", "关系", "哪个朋友", "朋友推荐", "同事推荐",
+        # Common natural-language bridge forms seen in memory benchmarks.
+        # Keep these semantic phrases rather than relying on one exact sentence.
+        "朋友工作", "朋友所在", "朋友公司", "朋友推荐的", "同事工作",
+        "同事所在", "同事公司", "同事推荐的", "老板公司",
+    )
+
+    MULTI_HOP_PATTERNS = (
+        re.compile(r"(?:朋友|同事|老板).{0,10}(?:工作|公司|所在|推荐|介绍).{0,10}(?:哪|什么|哪里|谁|哪个|总部|城市|地方)"),
+        re.compile(r"(?:他的|她的|他们的).{0,10}(?:公司|工作|朋友|同事|住处|城市|总部)"),
+        re.compile(r"(?:推荐|介绍).{0,10}(?:的|给我|给用户).{0,10}(?:城市|地方|公司|人|对象)"),
     )
 
     TEMPORAL_MARKERS = (
@@ -39,7 +49,10 @@ class QueryAnalyzer:
     def analyze(self, query: str, forced_multi_hop=None, reference_ts=None) -> QueryPlan:
         q = query.strip()
         rewritten = self.rewrite(q)
-        multi = any(x in q for x in self.MULTI_HOP_MARKERS)
+        multi = (
+            any(x in q for x in self.MULTI_HOP_MARKERS)
+            or any(pattern.search(q) for pattern in self.MULTI_HOP_PATTERNS)
+        )
         if forced_multi_hop is not None:
             multi = forced_multi_hop
         temporal = any(x in q for x in self.TEMPORAL_MARKERS)
