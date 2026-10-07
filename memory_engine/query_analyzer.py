@@ -25,19 +25,20 @@ class QueryPlan:
 
 class QueryAnalyzer:
     MULTI_HOP_MARKERS = (
-        "谁推荐", "谁介绍", "朋友的", "同事的", "他的", "她的",
-        "他们", "那个", "之前提到", "基于", "根据", "为什么",
-        "和谁", "关系", "哪个朋友", "朋友推荐", "同事推荐",
-        # Common natural-language bridge forms seen in memory benchmarks.
-        # Keep these semantic phrases rather than relying on one exact sentence.
-        "朋友工作", "朋友所在", "朋友公司", "朋友推荐的", "同事工作",
-        "同事所在", "同事公司", "同事推荐的", "老板公司",
+        "谁推荐", "谁介绍", "朋友的", "同事的", "他的", "她的", "他们",
+        "那个", "之前提到", "基于", "根据", "为什么", "和谁", "关系",
+        "哪个朋友", "朋友推荐", "同事推荐", "朋友工作", "朋友所在",
+        "朋友公司", "朋友推荐的", "同事工作", "同事所在", "同事公司",
+        "同事推荐的", "老板公司", "总部", "导致", "原因", "因为",
+        "所以", "因此", "中间", "经过", "路径", "如何导致",
     )
 
     MULTI_HOP_PATTERNS = (
-        re.compile(r"(?:朋友|同事|老板).{0,10}(?:工作|公司|所在|推荐|介绍).{0,10}(?:哪|什么|哪里|谁|哪个|总部|城市|地方)"),
-        re.compile(r"(?:他的|她的|他们的).{0,10}(?:公司|工作|朋友|同事|住处|城市|总部)"),
-        re.compile(r"(?:推荐|介绍).{0,10}(?:的|给我|给用户).{0,10}(?:城市|地方|公司|人|对象)"),
+        re.compile(r"(?:朋友|同事|老板).{0,12}(?:工作|公司|所在|推荐|介绍|总部).{0,12}(?:哪|什么|哪里|谁|哪个|总部|城市|地方)"),
+        re.compile(r"(?:他的|她的|他们的).{0,12}(?:公司|工作|朋友|同事|住处|城市|总部)"),
+        re.compile(r"(?:推荐|介绍).{0,12}(?:的|给我|给用户).{0,12}(?:城市|地方|公司|人|对象)"),
+        re.compile(r"(?:为什么|原因|导致|因为|所以|因此).{0,20}(?:什么|为何|为什么|结果|影响|导致)"),
+        re.compile(r"(?:总部|公司).{0,12}(?:在哪里|在哪|什么地方|哪个城市)"),
     )
 
     TEMPORAL_MARKERS = (
@@ -64,7 +65,8 @@ class QueryAnalyzer:
         memory_type_hint = self.infer_memory_type(q)
         relation_hint = any(
             marker in q for marker in (
-                "朋友", "同事", "推荐", "介绍", "谁和", "关系", "和谁"
+                "朋友", "同事", "推荐", "介绍", "谁和", "关系", "和谁",
+                "公司", "总部", "工作", "因果", "原因", "导致"
             )
         )
         expanded_query = self.expand_query(rewritten, memory_type_hint, relation_hint, info.relation)
@@ -82,7 +84,7 @@ class QueryAnalyzer:
             return "rule"
         if any(x in q for x in ("什么时候", "何时", "哪天", "哪一年", "参加了什么", "发生了什么")):
             return "event"
-        if any(x in q for x in ("朋友", "同事", "推荐", "介绍", "谁和", "关系", "和谁")):
+        if any(x in q for x in ("朋友", "同事", "推荐", "介绍", "谁和", "关系", "和谁", "公司", "总部", "工作", "导致", "原因")):
             return "relation"
         if any(x in q for x in ("喜欢", "爱好", "偏好", "不喜欢")):
             return "fact"
@@ -121,7 +123,6 @@ class QueryAnalyzer:
     @staticmethod
     def expand_query(q: str, memory_type_hint: str | None, relation_hint: bool,
                       temporal_relation: str) -> str:
-        """仅用于召回阶段的确定性语义扩展；不改变最终回答所依据的原始查询。"""
         terms = []
         if memory_type_hint == "rule":
             terms += ["习惯", "通常", "一般", "经常", "平时", "规则"]
@@ -135,13 +136,37 @@ class QueryAnalyzer:
         elif memory_type_hint == "event":
             terms += ["事件", "参加", "发生", "经历"]
         if relation_hint:
-            terms += ["朋友", "好友", "同事", "推荐", "介绍", "关系"]
+            terms += ["朋友", "好友", "同事", "推荐", "介绍", "关系", "公司", "总部", "工作"]
         if temporal_relation == "before":
             terms += ["以前", "之前", "曾经", "历史"]
         elif temporal_relation == "after":
             terms += ["后来", "之后"]
         unique = list(dict.fromkeys(x for x in terms if x not in q))
         return q if not unique else q + " " + " ".join(unique)
+
+    @staticmethod
+    def retrieval_queries(plan: QueryPlan) -> list[str]:
+        """Generate small deterministic subqueries for multi-hop retrieval.
+
+        This is query decomposition, not answer generation.  Keeping the
+        variants bounded makes it safe for hosted evaluation and gives the
+        first retrieval round a chance to find bridge entities even when the
+        final question has no literal entity name.
+        """
+        q = plan.rewritten
+        variants = [q]
+        if plan.multi_hop:
+            if "朋友" in plan.original or "同事" in plan.original or "老板" in plan.original:
+                variants += ["朋友 同事 老板 关系", "朋友 是谁", "朋友 推荐 工作 公司"]
+            if any(x in plan.original for x in ("公司", "工作", "总部")):
+                variants += ["工作 公司 就职", "公司 总部 位于", "总部 城市 地点"]
+            if any(x in plan.original for x in ("推荐", "介绍")):
+                variants += ["推荐 介绍", "推荐的 人 地方 公司"]
+            if any(x in plan.original for x in ("为什么", "原因", "导致", "因为", "所以", "因此")):
+                variants += ["原因 因为 导致", "原因 结果 影响"]
+        if plan.expanded_query:
+            variants.append(plan.expanded_query)
+        return list(dict.fromkeys(x.strip() for x in variants if x.strip()))[:7]
 
     @staticmethod
     def rewrite(q: str) -> str:
