@@ -53,3 +53,12 @@ def test_causal_chain(tmp_path):
     rows = search(engine, "为什么上线推迟？", 5)
     contents = [row["content"] for row in rows]
     assert any("项目延期" in x and "上线推迟" in x for x in contents), contents
+
+
+def test_controlled_open_domain_anchor(tmp_path):
+    engine = MemoryEngine(str(tmp_path / "memory.db"))
+
+    add(engine, "b-o1", "s1", "我现在住在上海。", 1704067200000)
+
+    rows = search(engine, "我住的城市属于哪个国家？", 5)
+    assert any("上海" in row["content"] for row in rows), rows
