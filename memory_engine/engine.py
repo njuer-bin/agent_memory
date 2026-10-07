@@ -266,30 +266,6 @@ class MemoryEngine:
                     break
                 frontier_entities.extend(next_entities[:8])
 
-            # Graph expansion is now performed over the expanded candidate
-            # pool, not only the top five pre-rerank results.
-            t_graph = time.perf_counter()
-            expanded = self.graph.expand(
-                request.user_id,
-                all_candidates[:30],
-                limit=max(20, request.top_k * 6),
-                max_hops=3,
-            )
-            for item in expanded:
-                cid = item["id"]
-                if cid not in seen_candidate_ids:
-                    seen_candidate_ids.add(cid)
-                    all_candidates.append(item)
-                else:
-                    for existing in all_candidates:
-                        if existing["id"] == cid:
-                            existing["score"] = max(existing["score"], float(item["score"]))
-                            md = dict(existing.get("metadata") or {})
-                            md.update(item.get("metadata") or {})
-                            existing["metadata"] = md
-                            break
-            graph_ms = (time.perf_counter() - t_graph) * 1000
-
         candidates = [(x, x["score"]) for x in all_candidates]
         result = list(all_candidates)
         # 查询级时间约束：优先使用显式时间窗口；“以前/去年/上个月”等
