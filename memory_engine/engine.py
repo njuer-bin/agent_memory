@@ -10,7 +10,6 @@ from .analyzer import MemoryAnalyzer
 from .evidence import EvidenceBuilder
 from .evidence_chain import EvidenceChainBuilder
 from .governance import MemoryGovernance
-from .graph_retriever import GraphRetriever
 from .hybrid_retriever import HybridRetriever
 from .models import new_id, now_ms
 from .query_analyzer import QueryAnalyzer
@@ -32,7 +31,6 @@ class MemoryEngine:
         # SQLite 持久化 + 进程级向量索引：Search 热路径不再反复读取/解析 JSON 向量。
         self.vector_index = MemoryVectorIndex(self.store)
         self.hybrid = HybridRetriever(self.store, self.embedder, self.vector_index)
-        self.graph = GraphRetriever(self.store)
         self.query_analyzer = QueryAnalyzer()
         self.reranker = LightweightReranker()
         self.evidence = EvidenceBuilder()
@@ -208,49 +206,8 @@ class MemoryEngine:
         hybrid_ms = (time.perf_counter() - t0) * 1000
 
         second_round_ms = 0.0
-        graph_ms = 0.0
 
         if plan.multi_hop and all_candidates:
-            # Deterministic graph bridge seeding: once a structured entity is
-            # discovered, pull every relation directly touching it before the
-            # semantic reranker runs. This prevents a valid next-hop edge such
-            # as "上海属于中国" from being lost because its wording has little
-            # lexical overlap with the original question.
-            relation_rows = self.store.relations(request.user_id)
-            seed_entities = set()
-            for item in all_candidates[:40]:
-                md = item.get("metadata", {}) or {}
-                for key in ("subject", "object", "value", "event"):
-                    value = str(md.get(key) or "").strip()
-                    if value and value not in {"user", "我", "用户"}:
-                        seed_entities.add(value)
-            for rel in relation_rows:
-                subject = str(rel.get("subject") or "").strip()
-                object_ = str(rel.get("object") or "").strip()
-                if not ({subject, object_} & seed_entities):
-                    continue
-                item = {
-                    "id": rel["id"],
-                    "content": rel["content"],
-                    "role": "relation",
-                    "timestamp": rel["timestamp"],
-                    "user_id": request.user_id,
-                    "session_id": "",
-                    "score": 0.030,
-                    "source": "structured_bridge",
-                    "memory_type": "relation",
-                    "status": "active",
-                    "valid_from": rel["timestamp"],
-                    "valid_to": None,
-                    "metadata": {
-                        "subject": subject,
-                        "predicate": rel.get("predicate"),
-                        "object": object_,
-                        "graph_hop": 1,
-                    },
-                }
-                _merge_candidates([(item, item["score"])])
-
             # P5 iterative retrieval: each round extracts entities from the
             # current evidence and uses them as the next-hop query.  This works
             # across sessions because all memories are scoped by user_id, not
@@ -491,8 +448,8 @@ class MemoryEngine:
         if os.getenv("MEMORY_PROFILE", "").strip() == "1":
             logger.info(
                 "SEARCH_PROFILE query=%r total=%.2f latest=%.2f analyze=%.2f hybrid=%.2f "
-                "second_round=%.2f graph=%.2f rerank=%.2f chain=%.2f evidence=%.2f candidates=%d final=%d",
-                query, total_ms, latest_ms, analyze_ms, hybrid_ms, second_round_ms, graph_ms,
+                "second_round=%.2f rerank=%.2f chain=%.2f evidence=%.2f candidates=%d final=%d",
+                query, total_ms, latest_ms, analyze_ms, hybrid_ms, second_round_ms,
                 rerank_ms, chain_ms, evidence_ms, len(candidates), len(ranked),
             )
         return ranked[:request.top_k]
