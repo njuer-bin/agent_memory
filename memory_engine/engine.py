@@ -139,31 +139,141 @@ class MemoryEngine:
         plan = self.query_analyzer.analyze(query, request.multi_hop, reference_ts)
         analyze_ms = (time.perf_counter() - t0) * 1000
 
+        # P5: multi-hop retrieval happens BEFORE reranking.  The old P4
+        # pipeline reranked first and only then tried to reconstruct a chain,
+        # which meant a bridge memory could be discarded before it was usable.
+        # We now run bounded iterative retrieval and merge all rounds first.
         t0 = time.perf_counter()
-        candidates = self.hybrid.candidates(
-            user_id=request.user_id,
-            query=plan.rewritten,
-            top_k=max(30, request.top_k * 5),
-            include_history=request.include_history or ("历史" in query or "以前" in query or "之前" in query),
-            session_id=request.session_id,
-            start_time=request.start_time,
-            end_time=request.end_time,
-            memory_types=request.memory_types,
-            memory_type_hint=plan.memory_type_hint,
-            temporal_relation=plan.temporal_relation,
-            relation_hint=plan.relation_hint,
-            sparse_query=plan.expanded_query or plan.rewritten,
-            predicate_hint=plan.predicate_hint,
-            intent_hint=plan.intent_hint,
-        )
+        retrieval_queries = self.query_analyzer.retrieval_queries(plan)
+        all_candidates = []
+        seen_candidate_ids = set()
+
+        def _merge_candidates(rows):
+            for d, score in rows:
+                item = dict(d)
+                item["score"] = float(score)
+                cid = item["id"]
+                # Keep the strongest score for the same memory.
+                if cid not in seen_candidate_ids:
+                    seen_candidate_ids.add(cid)
+                    all_candidates.append(item)
+                else:
+                    for existing in all_candidates:
+                        if existing["id"] == cid and score > existing["score"]:
+                            existing["score"] = float(score)
+                            break
+
+        # First pass: original/decomposed queries.  This is intentionally
+        # broader for multi-hop so that the bridge entity can be discovered.
+        for rq in retrieval_queries:
+            rows = self.hybrid.candidates(
+                user_id=request.user_id,
+                query=rq,
+                top_k=max(40, request.top_k * 8),
+                include_history=request.include_history or ("历史" in query or "以前" in query or "之前" in query),
+                session_id=request.session_id,
+                start_time=request.start_time,
+                end_time=request.end_time,
+                memory_types=request.memory_types,
+                memory_type_hint=plan.memory_type_hint,
+                temporal_relation=plan.temporal_relation,
+                relation_hint=plan.relation_hint,
+                sparse_query=rq,
+                predicate_hint=plan.predicate_hint,
+                intent_hint=plan.intent_hint,
+            )
+            _merge_candidates(rows)
+
+        candidates = [(x, x["score"]) for x in all_candidates]
         hybrid_ms = (time.perf_counter() - t0) * 1000
 
-        result = []
-        for d, score in candidates:
-            item = dict(d)
-            item["score"] = score
-            result.append(item)
+        second_round_ms = 0.0
+        graph_ms = 0.0
 
+        if plan.multi_hop and all_candidates:
+            # P5 iterative retrieval: each round extracts entities from the
+            # current evidence and uses them as the next-hop query.  This works
+            # across sessions because all memories are scoped by user_id, not
+            # by session_id unless the caller explicitly requests a session.
+            frontier_entities = []
+            for item in all_candidates[:12]:
+                md = item.get("metadata", {}) or {}
+                for key in ("subject", "object", "value", "event"):
+                    value = str(md.get(key) or "").strip()
+                    if value and value not in {"user", "我", "用户"} and value not in frontier_entities:
+                        frontier_entities.append(value)
+
+            for hop in range(1, 4):
+                if not frontier_entities:
+                    break
+                round_query = " ".join(frontier_entities[:8])
+                # Add relation semantics so an entity-only second hop still
+                # retrieves workplace/headquarters/causal evidence.
+                if any(x in query for x in ("总部", "公司", "工作")):
+                    round_query += " 工作 公司 总部 位于"
+                elif any(x in query for x in ("推荐", "介绍")):
+                    round_query += " 推荐 介绍"
+                elif any(x in query for x in ("为什么", "原因", "导致", "因为", "所以", "因此")):
+                    round_query += " 原因 导致 因果 结果"
+
+                t_round = time.perf_counter()
+                rows = self.hybrid.candidates(
+                    user_id=request.user_id,
+                    query=round_query,
+                    top_k=max(30, request.top_k * 6),
+                    include_history=request.include_history or ("历史" in query or "以前" in query or "之前" in query),
+                    session_id=request.session_id,
+                    start_time=request.start_time,
+                    end_time=request.end_time,
+                    memory_types=request.memory_types,
+                    memory_type_hint="relation",
+                    temporal_relation=plan.temporal_relation,
+                    relation_hint=True,
+                    sparse_query=round_query,
+                    predicate_hint=None,
+                    intent_hint="relation",
+                    use_dense=False,
+                )
+                _merge_candidates(rows)
+                second_round_ms += (time.perf_counter() - t_round) * 1000
+
+                # Expand from the newly found structured entities.
+                next_entities = []
+                for item, _score in rows[:15]:
+                    md = item.get("metadata", {}) or {}
+                    for key in ("subject", "object", "value"):
+                        value = str(md.get(key) or "").strip()
+                        if value and value not in {"user", "我", "用户"} and value not in frontier_entities and value not in next_entities:
+                            next_entities.append(value)
+                if not next_entities:
+                    break
+                frontier_entities.extend(next_entities[:8])
+
+            # Graph expansion is now performed over the expanded candidate
+            # pool, not only the top five pre-rerank results.
+            t_graph = time.perf_counter()
+            expanded = self.graph.expand(
+                request.user_id,
+                all_candidates[:30],
+                limit=max(20, request.top_k * 6),
+                max_hops=3,
+            )
+            for item in expanded:
+                cid = item["id"]
+                if cid not in seen_candidate_ids:
+                    seen_candidate_ids.add(cid)
+                    all_candidates.append(item)
+                else:
+                    for existing in all_candidates:
+                        if existing["id"] == cid:
+                            existing["score"] = max(existing["score"], float(item["score"]))
+                            md = dict(existing.get("metadata") or {})
+                            md.update(item.get("metadata") or {})
+                            existing["metadata"] = md
+                            break
+            graph_ms = (time.perf_counter() - t_graph) * 1000
+
+        candidates = [(x, x["score"]) for x in all_candidates]
         # 查询级时间约束：优先使用显式时间窗口；“以前/去年/上个月”等
         # 会由 QueryAnalyzer 归一化后应用到候选证据。
         if plan.temporal and (plan.temporal_start is not None or plan.temporal_end is not None):
