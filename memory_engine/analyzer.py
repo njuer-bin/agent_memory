@@ -113,6 +113,9 @@ class MemoryAnalyzer:
         # "A 是 B 的朋友" / "A 属于 B"
         (re.compile(r"([A-Za-z0-9_\u4e00-\u9fff]{1,40})\s*(?:是|叫|为)\s*(?:我的|我|用户的)?(朋友|同事|老板)"), "social_role"),
         (re.compile(r"([A-Za-z0-9_\u4e00-\u9fff]{1,40})\s*(?:属于|隶属于|来自)\s*([A-Za-z0-9_\u4e00-\u9fff]{1,40})"), "belongs_to"),
+        # Lightweight alias/canonicalization edge.  The graph can traverse
+        # alias_of without requiring a separate graph database.
+        (re.compile(r"([A-Za-z0-9_\u4e00-\u9fff]{1,40})\s*(?:也叫|又名|别名是|简称为)\s*([A-Za-z0-9_\u4e00-\u9fff]{1,40})"), "alias_of"),
         # Existing user->person forms.
         (re.compile(r"(?:我的|我)?(?:朋友|好友)\s*(?:是|叫|为)?\s*([A-Za-z0-9_\u4e00-\u9fff]{1,20})(?=推荐|介绍|、|，|。|\s|$)"), "friend"),
         (re.compile(r"(?:我的|我)?同事\s*(?:是|叫|为)?\s*([A-Za-z0-9_\u4e00-\u9fff]{1,20})(?=推荐|介绍|、|，|。|\s|$)"), "colleague"),
