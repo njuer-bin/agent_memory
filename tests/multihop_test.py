@@ -24,7 +24,9 @@ def main():
         "multi_hop":True,
     })
     r.raise_for_status()
-    rows = r.json()["results"]
+    data = r.json()
+    rows = data.get("data", [])
+    assert "data" in data, f"unexpected /search response: {data}"
     assert rows
     assert any("杭州" in x["content"] for x in rows)
 
