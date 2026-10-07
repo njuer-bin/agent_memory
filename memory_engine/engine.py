@@ -11,6 +11,7 @@ from .governance import MemoryGovernance
 from .graph_retriever import GraphRetriever
 from .hybrid_retriever import HybridRetriever
 from .models import new_id, now_ms
+from .multihop_evidence import EvidenceAnchorExtractor
 from .query_analyzer import QueryAnalyzer
 from .reranker import LightweightReranker
 from .store import SQLiteStore
@@ -34,6 +35,7 @@ class MemoryEngine:
         self.query_analyzer = QueryAnalyzer()
         self.reranker = LightweightReranker()
         self.evidence = EvidenceBuilder()
+        self.anchor_extractor = EvidenceAnchorExtractor(self.analyzer)
 
     def add(self, request):
         # Claim request_id atomically before doing any writes. This closes the
@@ -176,19 +178,18 @@ class MemoryEngine:
         second_round_ms = 0.0
         if plan.multi_hop and result:
             entity_terms = []
-            for seed in result[:5]:
+            for seed in result[:8]:
                 md = seed.get("metadata", {}) or {}
-                for key in ("subject", "object", "value"):
-                    value = md.get(key)
-                    if value and value != "user" and value not in entity_terms:
-                        entity_terms.append(str(value))
+                for value in self.anchor_extractor.extract(seed):
+                    if value not in entity_terms:
+                        entity_terms.append(value)
             if entity_terms:
-                round2_query = plan.rewritten + " " + " ".join(entity_terms[:4])
+                round2_query = plan.rewritten + " " + " ".join(entity_terms[:8])
                 t0 = time.perf_counter()
                 round2 = self.hybrid.candidates(
                     user_id=request.user_id,
                     query=round2_query,
-                    top_k=max(15, request.top_k * 2),
+                    top_k=max(20, request.top_k * 3),
                     include_history=request.include_history or ("历史" in query or "以前" in query or "之前" in query),
                     session_id=request.session_id,
                     start_time=request.start_time,
@@ -202,14 +203,15 @@ class MemoryEngine:
                     intent_hint=plan.intent_hint,
                     use_dense=False,
                 )
-                result.extend({**dict(d), "score": score} for d, score in round2)
+                for d, score in round2:
+                    result.append(self.anchor_extractor.annotate({**dict(d), "score": score}, entity_terms))
                 second_round_ms = (time.perf_counter() - t0) * 1000
 
         # 仅多跳查询执行额外图扩展，避免所有查询都增加延迟。
         graph_ms = 0.0
         if plan.multi_hop:
             t0 = time.perf_counter()
-            expanded = self.graph.expand(request.user_id, result[:5], limit=10)
+            expanded = self.graph.expand(request.user_id, result[:8], limit=12)
             result.extend(expanded)
             graph_ms = (time.perf_counter() - t0) * 1000
 
@@ -264,7 +266,7 @@ class MemoryEngine:
             ranked.sort(key=_current_state_key, reverse=True)
 
         t0 = time.perf_counter()
-        ranked = self.evidence.build(ranked, request.top_k)
+        ranked = self.evidence.build(ranked, request.top_k, multi_hop=plan.multi_hop)
         evidence_ms = (time.perf_counter() - t0) * 1000
 
         # 时间查询的结果顺序：当前有效事实优先；历史查询保留时间信息。
