@@ -283,48 +283,6 @@ class MemoryEngine:
                 and (plan.temporal_end is None or r.get("valid_from", r.get("timestamp", 0)) <= plan.temporal_end)
             ]
 
-        # P1：受控两轮检索。仅对多跳查询启用：第一轮先找锚点实体，
-        # 第二轮用锚点做 BM25-only 扩展，避免再次调用 embedding。
-        second_round_ms = 0.0
-        if plan.multi_hop and result:
-            entity_terms = []
-            for seed in result[:5]:
-                md = seed.get("metadata", {}) or {}
-                for key in ("subject", "object", "value"):
-                    value = md.get(key)
-                    if value and value != "user" and value not in entity_terms:
-                        entity_terms.append(str(value))
-            if entity_terms:
-                round2_query = plan.rewritten + " " + " ".join(entity_terms[:4])
-                t0 = time.perf_counter()
-                round2 = self.hybrid.candidates(
-                    user_id=request.user_id,
-                    query=round2_query,
-                    top_k=max(15, request.top_k * 2),
-                    include_history=request.include_history or ("历史" in query or "以前" in query or "之前" in query),
-                    session_id=request.session_id,
-                    start_time=request.start_time,
-                    end_time=request.end_time,
-                    memory_types=request.memory_types,
-                    memory_type_hint=plan.memory_type_hint,
-                    temporal_relation=plan.temporal_relation,
-                    relation_hint=plan.relation_hint,
-                    sparse_query=round2_query,
-                    predicate_hint=plan.predicate_hint,
-                    intent_hint=plan.intent_hint,
-                    use_dense=False,
-                )
-                result.extend({**dict(d), "score": score} for d, score in round2)
-                second_round_ms = (time.perf_counter() - t0) * 1000
-
-        # 仅多跳查询执行额外图扩展，避免所有查询都增加延迟。
-        graph_ms = 0.0
-        if plan.multi_hop:
-            t0 = time.perf_counter()
-            expanded = self.graph.expand(request.user_id, result[:5], limit=10)
-            result.extend(expanded)
-            graph_ms = (time.perf_counter() - t0) * 1000
-
         # 去重
         dedup = {}
         for r in result:
