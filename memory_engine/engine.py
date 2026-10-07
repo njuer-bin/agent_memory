@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 from typing import Any
 
@@ -93,6 +94,14 @@ class MemoryEngine:
                 # only recently seen structured entities for this user and do
                 # not resolve ambiguous pronouns when no unique anchor exists.
                 recent_entities = []
+                # Structured relations are the strongest anchors, but a prior
+                # message may introduce an entity before any relation exists
+                # (e.g. "我最近负责 Acme 项目" -> "这个项目...").
+                for raw in self.store.all_raw(request.user_id)[:12]:
+                    raw_content = str(raw.get("content") or "")
+                    for match in re.findall(r"([A-Za-z][A-Za-z0-9_-]{1,39})(?=项目|公司|集团|团队)", raw_content):
+                        if match not in recent_entities:
+                            recent_entities.append(match)
                 for rel in self.store.relations(request.user_id)[:12]:
                     for value in (rel.get("subject"), rel.get("object")):
                         value = str(value or "").strip()
