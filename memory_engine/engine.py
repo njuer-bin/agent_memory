@@ -377,14 +377,42 @@ class MemoryEngine:
             if ranked_entities:
                 relevant_predicates = {"belongs_to", "causes", "headquarters", "work_at", "recommend", "located_in", "alias_of"}
                 existing_ids = {item.get("id") for item in ranked}
-                bridge = None
+
+                # Choose the bridge according to the query's requested final
+                # relation, not SQLite insertion order.  For example,
+                # “总部所在城市属于哪个国家” must keep the belongs_to edge
+                # “上海属于中国”, even when distractor relations were added
+                # earlier or later.
+                if any(x in query for x in ("属于哪个国家", "属于什么国家", "哪个国家")):
+                    predicate_priority = {"belongs_to": 0, "located_in": 1, "headquarters": 2}
+                elif any(x in query for x in ("为什么", "原因", "导致", "因为", "所以", "因此")):
+                    predicate_priority = {"causes": 0}
+                elif any(x in query for x in ("总部", "公司")):
+                    predicate_priority = {"headquarters": 0, "work_at": 1, "located_in": 2}
+                elif any(x in query for x in ("推荐", "介绍")):
+                    predicate_priority = {"recommend": 0}
+                else:
+                    predicate_priority = {}
+
+                bridge_candidates = []
                 for rel in relation_rows:
-                    if rel.get("id") in existing_ids or rel.get("predicate") not in relevant_predicates:
+                    predicate = rel.get("predicate")
+                    if rel.get("id") in existing_ids or predicate not in relevant_predicates:
                         continue
                     subject = str(rel.get("subject") or "").strip()
                     object_ = str(rel.get("object") or "").strip()
                     if not ({subject, object_} & ranked_entities):
                         continue
+                    bridge_candidates.append((predicate_priority.get(predicate, 50), rel))
+
+                bridge = None
+                if bridge_candidates:
+                    _, rel = min(
+                        bridge_candidates,
+                        key=lambda pair: (pair[0], str(pair[1].get("id") or "")),
+                    )
+                    subject = str(rel.get("subject") or "").strip()
+                    object_ = str(rel.get("object") or "").strip()
                     bridge = {
                         "id": rel["id"], "content": rel["content"], "role": "relation",
                         "timestamp": rel["timestamp"], "user_id": request.user_id,
@@ -393,7 +421,6 @@ class MemoryEngine:
                         "valid_from": rel["timestamp"], "valid_to": None,
                         "metadata": {"subject": subject, "predicate": rel.get("predicate"), "object": object_, "graph_hop": 1},
                     }
-                    break
                 if bridge is not None:
                     # EvidenceBuilder keeps the first top_k candidates, so a
                     # bridge appended at the tail would still be discarded.
