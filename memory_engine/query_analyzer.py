@@ -31,7 +31,8 @@ class QueryAnalyzer:
         "朋友公司", "朋友推荐的", "同事工作", "同事所在", "同事公司",
         "同事推荐的", "老板公司", "总部", "导致", "原因", "因为",
         "所以", "因此", "中间", "经过", "路径", "如何导致",
-        "属于哪个国家", "属于什么国家", "总部所在城市", "所在城市属于", "也叫", "又名",\n        "属于哪个国家", "属于什么国家", "总部所在城市", "所在城市属于", "也叫", "又名",
+        "属于哪个国家", "属于什么国家", "总部所在城市", "所在城市属于", "也叫", "又名",
+        "属于哪个国家", "属于什么国家", "总部所在城市", "所在城市属于", "也叫", "又名",
     )
 
     MULTI_HOP_PATTERNS = (
@@ -41,7 +42,9 @@ class QueryAnalyzer:
         re.compile(r"(?:为什么|原因|导致|因为|所以|因此).{0,20}(?:什么|为何|为什么|结果|影响|导致)"),
         re.compile(r"(?:总部|公司).{0,12}(?:在哪里|在哪|什么地方|哪个城市)"),
         re.compile(r"(?:城市|地点).{0,12}(?:属于哪个国家|属于什么国家|哪个国家)"),
-        re.compile(r"(?:也叫|又名|别名|简称).{0,20}(?:总部|公司|在哪里|在哪)"),\n        re.compile(r"(?:城市|地点).{0,12}(?:属于哪个国家|属于什么国家|哪个国家)"),\n        re.compile(r"(?:也叫|又名|别名|简称).{0,20}(?:总部|公司|在哪里|在哪)"),
+        re.compile(r"(?:也叫|又名|别名|简称).{0,20}(?:总部|公司|在哪里|在哪)"),
+        re.compile(r"(?:城市|地点).{0,12}(?:属于哪个国家|属于什么国家|哪个国家)"),
+        re.compile(r"(?:也叫|又名|别名|简称).{0,20}(?:总部|公司|在哪里|在哪)"),
     )
 
     TEMPORAL_MARKERS = (
@@ -174,7 +177,11 @@ class QueryAnalyzer:
             if any(x in plan.original for x in ("属于哪个国家", "属于什么国家", "哪个国家")):
                 variants += ["城市 国家 属于", "地点 国家", "属于 国家"]
             if any(x in plan.original for x in ("也叫", "又名", "别名", "简称")):
-                variants += ["别名 也叫 又名", "alias canonical 总部 公司"]\n            if any(x in plan.original for x in ("属于哪个国家", "属于什么国家", "哪个国家")):\n                variants += ["城市 国家 属于", "地点 国家", "属于 国家"]\n            if any(x in plan.original for x in ("也叫", "又名", "别名", "简称")):\n                variants += ["别名 也叫 又名", "alias canonical 总部 公司"]
+                variants += ["别名 也叫 又名", "alias canonical 总部 公司"]
+            if any(x in plan.original for x in ("属于哪个国家", "属于什么国家", "哪个国家")):
+                variants += ["城市 国家 属于", "地点 国家", "属于 国家"]
+            if any(x in plan.original for x in ("也叫", "又名", "别名", "简称")):
+                variants += ["别名 也叫 又名", "alias canonical 总部 公司"]
             if any(x in plan.original for x in ("为什么", "原因", "导致", "因为", "所以", "因此")):
                 variants += ["原因 因为 导致", "原因 结果 影响"]
         if plan.expanded_query:
