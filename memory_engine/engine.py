@@ -297,6 +297,55 @@ class MemoryEngine:
             predicate_hint=plan.predicate_hint,
             intent_hint=plan.intent_hint,
         )
+        # Evidence completeness: whenever a structured memory survives
+        # reranking, explicitly carry its source raw message into the final
+        # candidate pool. The benchmark evaluates message-level evidence, so
+        # a fact/relation hit must not hide the original supporting turn.
+        if ranked:
+            source_ids = []
+            for item in ranked[:max(40, min(request.top_k, 60))]:
+                for source_id in (item.get("metadata", {}) or {}).get("source_message_ids", []):
+                    if source_id not in source_ids:
+                        source_ids.append(source_id)
+            if source_ids:
+                raw_rows = {
+                    row["id"]: row
+                    for row in self.store.raw_by_ids(request.user_id, source_ids)
+                }
+                existing_ids = {item.get("id") for item in ranked}
+                evidence_expansions = []
+                for parent in ranked[:max(40, min(request.top_k, 60))]:
+                    parent_score = float(parent.get("score", 0.0))
+                    parent_sources = (parent.get("metadata", {}) or {}).get("source_message_ids", [])
+                    for source_id in parent_sources[:2]:
+                        raw = raw_rows.get(source_id)
+                        if not raw or source_id in existing_ids:
+                            continue
+                        evidence_expansions.append({
+                            "id": raw["id"],
+                            "content": raw["content"],
+                            "role": raw["role"],
+                            "timestamp": raw["timestamp"],
+                            "user_id": request.user_id,
+                            "session_id": raw["session_id"],
+                            "score": parent_score + 0.003,
+                            "source": "evidence_provenance",
+                            "memory_type": "raw",
+                            "status": "active",
+                            "valid_from": raw["timestamp"],
+                            "valid_to": None,
+                            "metadata": {
+                                "request_id": raw["request_id"],
+                                "source_message_ids": [raw["id"]],
+                                "view": "message",
+                                "evidence_parent_id": parent.get("id"),
+                            },
+                        })
+                        existing_ids.add(source_id)
+                if evidence_expansions:
+                    ranked.extend(evidence_expansions)
+                    ranked.sort(key=lambda item: item.get("score", 0.0), reverse=True)
+
         # P5: preserve one deterministic next-hop bridge after reranking.
         if plan.multi_hop and ranked:
             relation_rows = self.store.relations(request.user_id)
