@@ -274,6 +274,7 @@ class MemoryEngine:
             graph_ms = (time.perf_counter() - t_graph) * 1000
 
         candidates = [(x, x["score"]) for x in all_candidates]
+        result = list(all_candidates)
         # 查询级时间约束：优先使用显式时间窗口；“以前/去年/上个月”等
         # 会由 QueryAnalyzer 归一化后应用到候选证据。
         if plan.temporal and (plan.temporal_start is not None or plan.temporal_end is not None):
