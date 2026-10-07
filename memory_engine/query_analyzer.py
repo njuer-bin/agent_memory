@@ -88,7 +88,10 @@ class QueryAnalyzer:
             return "relation"
         if any(x in q for x in ("喜欢", "爱好", "偏好", "不喜欢")):
             return "fact"
-        if any(x in q for x in ("住哪里", "住哪", "居住地", "住过")):
+        if any(x in q for x in (
+            "住哪里", "住哪", "居住地", "住过", "哪个国家", "什么国家",
+            "哪个城市", "什么城市", "在哪里", "在哪", "属于哪里", "属于哪个国家"
+        )):
             return "fact"
         return None
 
@@ -131,8 +134,11 @@ class QueryAnalyzer:
                 terms += ["偏好", "喜欢", "爱好", "喜爱"]
             if any(x in q for x in ("职业", "工作", "从事")):
                 terms += ["职业", "工作", "从事"]
-            if any(x in q for x in ("住哪里", "住哪", "居住地", "住过")):
-                terms += ["居住地", "住处", "居住", "以前", "曾经", "之前"]
+            if any(x in q for x in (
+                "住哪里", "住哪", "居住地", "住过", "哪个国家", "什么国家",
+                "哪个城市", "什么城市", "在哪里", "在哪", "属于哪里"
+            )):
+                terms += ["居住地", "住处", "居住", "城市", "国家", "地点", "以前", "曾经", "之前"]
         elif memory_type_hint == "event":
             terms += ["事件", "参加", "发生", "经历"]
         if relation_hint:
