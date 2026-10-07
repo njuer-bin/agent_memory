@@ -190,6 +190,78 @@ class QueryAnalyzer:
         return list(dict.fromkeys(x.strip() for x in variants if x.strip()))[:7]
 
     @staticmethod
+    def evidence_requirements(plan: QueryPlan) -> list[dict]:
+        """Plan independent evidence requirements for completeness-first retrieval."""
+        q = plan.original.strip()
+        lower = q.lower()
+        requirements = []
+
+        def add(kind, query, entity=None, temporal=None, priority=0):
+            query = " ".join(str(query or "").split()).strip()
+            if not query or any(r["query"].lower() == query.lower() for r in requirements):
+                return
+            requirements.append({
+                "id": f"R{len(requirements) + 1}",
+                "kind": kind, "query": query, "entity": entity,
+                "temporal": temporal, "priority": priority,
+            })
+
+        tokens = re.findall(r"[A-Za-z][A-Za-z0-9_-]*", q)
+        stop = {
+            "what","which","who","where","when","why","how","many","much","does",
+            "did","do","has","have","had","is","are","was","were","be","been",
+            "the","a","an","and","or","to","of","for","in","on","at","with","from",
+            "by","that","this","these","those","both","some","any","all","ever",
+            "also","really","just","till","date","mentioned","participate",
+        }
+        entities = []
+        for token in tokens:
+            if token[0].isupper() and token.lower() not in stop and token not in entities:
+                entities.append(token)
+
+        years = re.findall(r"\b(?:19|20)\d{2}\b", q)
+        months = re.findall(
+            r"\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\b",
+            q, flags=re.I,
+        )
+        temporal = " ".join(dict.fromkeys([*months, *years]))
+
+        # Per-entity retrieval is mandatory for multi-entity questions.
+        for entity in entities[:3]:
+            add("entity", entity, entity=entity, priority=10)
+
+        if len(entities) >= 2:
+            pair = " ".join(entities[:2])
+            if any(x in lower for x in ("both", "common", "shared", "same", "together")):
+                add("intersection", f"{pair} common shared both", entity=pair, priority=20)
+            else:
+                add("pair", pair, entity=pair, priority=12)
+
+        if temporal:
+            add("temporal", " ".join([*entities[:2], temporal]), entity=entities[0] if entities else None,
+                temporal=temporal, priority=22)
+
+        # Preserve the full question for predicate-specific wording.
+        add("full", plan.rewritten, priority=5)
+
+        if not entities:
+            chinese_terms = re.findall(r"[\u4e00-\u9fff]{2,8}", q)
+            chinese_stop = {
+                "什么","哪些","哪个","哪里","怎么","为什么","多少","有没有","是否",
+                "以及","还有","关于","分别","他们","她们","这个","那个","之前","之后",
+            }
+            for term in [x for x in chinese_terms if x not in chinese_stop][:3]:
+                add("term", term, entity=term, priority=10)
+
+        if any(x in q for x in ("为什么","原因","导致","因为","所以","因此")):
+            add("causal", q + " 原因 导致 因果 结果", priority=24)
+
+        requirements.sort(key=lambda r: (-r["priority"], r["id"]))
+        for idx, item in enumerate(requirements[:4], 1):
+            item["id"] = f"R{idx}"
+        return requirements[:4]
+
+    @staticmethod
     def retrieval_queries(plan: QueryPlan) -> list[str]:
         """Generate bounded full-query and evidence-requirement retrieval views."""
         q = plan.rewritten
