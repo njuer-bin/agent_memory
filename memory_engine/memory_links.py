@@ -12,9 +12,9 @@ class MemoryLinkBuilder:
     """
 
     CAUSAL = (
-        (re.compile(r"(?:因为|由于)\\s*(.{1,100}?)\\s*(?:，|,)??\\s*(?:所以|因此|于是)\\s*(.{1,100})"), "cause_to_effect"),
-        (re.compile(r"(.{1,80}?)\\s*(?:导致|造成|引发|使得)\\s*(.{1,80})"), "cause_to_effect"),
-        (re.compile(r"(.{1,80}?)\\s*(?:是因为|源于|的原因是)\\s*(.{1,80})"), "effect_to_cause"),
+        (re.compile(r"(?:因为|由于)\s*(.{1,100}?)\s*(?:，|,)??\s*(?:所以|因此|于是)\s*(.{1,100})"), "cause_to_effect"),
+        (re.compile(r"(.{1,80}?)\s*(?:导致|造成|引发|使得)\s*(.{1,80})"), "cause_to_effect"),
+        (re.compile(r"(.{1,80}?)\s*(?:是因为|源于|的原因是)\s*(.{1,80})"), "effect_to_cause"),
     )
     TEMPORAL = ("后来", "之后", "然后", "接着", "最终", "随后", "第二天", "第二周", "确认", "验证", "有效", "解决")
     UPDATE = ("改成", "更正", "取消", "推迟", "改期", "现在是", "已经", "不再", "换成")
@@ -57,8 +57,8 @@ class MemoryLinkBuilder:
             prev_entities = cls._entities(prev_content)
             overlap = len(current_entities & prev_entities)
             temporal = any(x in content for x in cls.TEMPORAL)
-            prev_core = re.sub(r"[。！？!?；;，,、\\s]+", "", prev_content)
-            current_core = re.sub(r"[。！？!?；;，,、\\s]+", "", content)
+            prev_core = re.sub(r"[。！？!?；;，,、\s]+", "", prev_content)
+            current_core = re.sub(r"[。！？!?；;，,、\s]+", "", content)
             lexical_bridge = (
                 len(prev_core) >= 5 and prev_core in current_core
             ) or (
