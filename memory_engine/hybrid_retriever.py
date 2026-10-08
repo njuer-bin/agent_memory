@@ -68,10 +68,22 @@ class HybridRetriever:
         for r in sorted(raws, key=lambda x: (x["session_id"], x["timestamp"])):
             by_session[r["session_id"]].append(r)
 
+        # Causal/path questions need more local context than ordinary fact
+        # lookup: the trigger, transition, and outcome are often adjacent
+        # turns. Keep the default window small, but expand it deterministically
+        # for causal markers. This is retrieval-only context expansion; raw
+        # messages remain the canonical evidence.
+        causal_query = any(
+            marker in (query or "")
+            for marker in ("为什么", "为何", "原因", "导致", "因为", "所以", "因此",
+                           "how did", "why", "cause", "caused", "because")
+        )
+        window_radius = 4 if causal_query else self.WINDOW_RADIUS
+
         for session_id, session_rows in by_session.items():
             for idx, center in enumerate(session_rows):
-                lo = max(0, idx - self.WINDOW_RADIUS)
-                hi = min(len(session_rows), idx + self.WINDOW_RADIUS + 1)
+                lo = max(0, idx - window_radius)
+                hi = min(len(session_rows), idx + window_radius + 1)
                 members = session_rows[lo:hi]
                 source_ids = [m["id"] for m in members]
                 content = "\n".join(str(m["content"]) for m in members)
