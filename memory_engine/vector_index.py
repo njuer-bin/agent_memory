@@ -10,10 +10,8 @@ class MemoryVectorIndex:
     """
     Process-level dense vector index.
 
-    SQLite remains the durable source of truth. This index only keeps normalized
-    vectors in RAM so Search does not repeatedly JSON-decode hundreds of vectors.
-    Data written by Add is inserted immediately, preserving Add -> Search
-    consistency within the running API process.
+    SQLite remains the durable source of truth. Every vector for one user must
+    use exactly the same embedding dimension.
     """
 
     def __init__(self, store):
@@ -23,6 +21,7 @@ class MemoryVectorIndex:
         self._vectors: dict[str, dict[str, np.ndarray]] = {}
         self._matrix: dict[str, np.ndarray] = {}
         self._ids: dict[str, list[str]] = {}
+        self._dims: dict[str, int] = {}
 
     def _ensure_user(self, user_id: str) -> None:
         with self._lock:
@@ -31,14 +30,25 @@ class MemoryVectorIndex:
 
             rows = self.store.embeddings(user_id)
             vectors: dict[str, np.ndarray] = {}
+            dims: set[int] = set()
             for memory_id, vector in rows:
-                arr = np.asarray(vector, dtype=np.float32)
+                arr = np.asarray(vector, dtype=np.float32).reshape(-1)
+                if arr.size == 0:
+                    continue
+                dims.add(int(arr.size))
                 norm = float(np.linalg.norm(arr))
                 if norm > 0:
                     arr = arr / norm
                 vectors[memory_id] = arr
 
+            if len(dims) > 1:
+                raise ValueError(
+                    f"mixed embedding dimensions for user {user_id}: {sorted(dims)}"
+                )
+
             self._vectors[user_id] = vectors
+            if dims:
+                self._dims[user_id] = next(iter(dims))
             self._rebuild_matrix(user_id)
             self._loaded_users.add(user_id)
 
@@ -50,22 +60,29 @@ class MemoryVectorIndex:
             self._matrix[user_id] = np.empty((0, 0), dtype=np.float32)
             return
 
-        dim = max(len(vectors[mid]) for mid in ids)
-        matrix = np.zeros((len(ids), dim), dtype=np.float32)
-        for row, mid in enumerate(ids):
-            arr = vectors[mid]
-            matrix[row, :len(arr)] = arr
-        self._matrix[user_id] = matrix
+        dims = {len(vectors[mid]) for mid in ids}
+        if len(dims) != 1:
+            raise ValueError(
+                f"mixed embedding dimensions in in-memory index for user {user_id}: {sorted(dims)}"
+            )
+
+        dim = next(iter(dims))
+        expected = self._dims.get(user_id)
+        if expected is not None and dim != expected:
+            raise ValueError(
+                f"embedding dimension mismatch for user {user_id}: expected {expected}, got {dim}"
+            )
+        self._dims[user_id] = dim
+        self._matrix[user_id] = np.vstack(
+            [vectors[mid] for mid in ids]
+        ).astype(np.float32, copy=False)
 
     def add(self, user_id: str, memory_id: str, vector: list[float]) -> None:
-        # If this user already has persisted vectors from before the current
-        # process started, load them before inserting the new vector. Otherwise
-        # the first Add after startup could hide historical vectors from Search.
         self._ensure_user(user_id)
 
-        arr = np.asarray(vector, dtype=np.float32)
-        if arr.ndim != 1:
-            arr = arr.reshape(-1)
+        arr = np.asarray(vector, dtype=np.float32).reshape(-1)
+        if arr.size == 0:
+            raise ValueError("embedding is empty")
         if not np.all(np.isfinite(arr)):
             raise ValueError("embedding contains non-finite values")
         norm = float(np.linalg.norm(arr))
@@ -73,6 +90,13 @@ class MemoryVectorIndex:
             arr = arr / norm
 
         with self._lock:
+            expected = self._dims.get(user_id)
+            if expected is not None and len(arr) != expected:
+                raise ValueError(
+                    f"embedding dimension mismatch for user {user_id}: expected {expected}, got {len(arr)}"
+                )
+            if expected is None:
+                self._dims[user_id] = len(arr)
             self._vectors.setdefault(user_id, {})[memory_id] = arr
             self._rebuild_matrix(user_id)
 
@@ -91,7 +115,12 @@ class MemoryVectorIndex:
             if matrix is None or matrix.size == 0:
                 return []
 
-            q = np.asarray(query_vector, dtype=np.float32)
+            q = np.asarray(query_vector, dtype=np.float32).reshape(-1)
+            expected = self._dims.get(user_id)
+            if expected is not None and len(q) != expected:
+                raise ValueError(
+                    f"query embedding dimension mismatch for user {user_id}: index={expected}, query={len(q)}"
+                )
             qnorm = float(np.linalg.norm(q))
             if qnorm <= 0:
                 return []
@@ -106,7 +135,6 @@ class MemoryVectorIndex:
                 return []
 
             sub = matrix[positions]
-            # Stored vectors and q are normalized, so dot product is cosine.
             scores = sub @ q
             limit = min(max(1, top_k), len(positions))
             if limit < len(positions):
