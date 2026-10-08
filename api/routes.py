@@ -6,13 +6,13 @@ from datetime import datetime, timezone
 
 from fastapi import FastAPI, Header, HTTPException
 
-from memory_engine.engine import MemoryEngine
+from memory_engine.reasoning_engine import ReasoningMemoryEngine
 from memory_engine.models import AddRequest, AddResponse, SearchRequest, SearchResponse, SearchResult
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="AML Phase 2 Memory Engine", version="2.0.0")
-engine = MemoryEngine(os.getenv("MEMORY_DB_PATH", "data/memory.db"))
+engine = ReasoningMemoryEngine(os.getenv("MEMORY_DB_PATH", "data/memory.db"))
 
 API_KEY = os.getenv("MEMORY_API_KEY", "").strip()
 
