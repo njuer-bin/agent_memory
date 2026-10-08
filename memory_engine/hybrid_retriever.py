@@ -42,7 +42,7 @@ class HybridRetriever:
         ).hexdigest()[:20]
         return f"{view_type}_{digest}"
 
-    def _raw_views(self, raws: list[dict], user_id: str) -> list[dict]:
+    def _raw_views(self, raws: list[dict], user_id: str, query: str = "") -> list[dict]:
         """Build raw + local-window views while preserving source IDs."""
         docs = []
         # Raw message view: never summarize or replace the original message.
@@ -213,7 +213,7 @@ class HybridRetriever:
         rules = self.store.rules(user_id)
         profiles = self.store.profiles(user_id)
 
-        docs = self._raw_views(raws, user_id)
+        docs = self._raw_views(raws, user_id, query)
 
         for f in facts:
             docs.append({
