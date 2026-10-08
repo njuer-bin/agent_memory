@@ -205,12 +205,39 @@ def evidence_texts(question: dict) -> list[str]:
     return []
 
 
+def _debug_question(question: dict, evidence: list[str], rows: list[dict], debug_top_n: int) -> None:
+    """Print final message-level evidence diagnostics without changing retrieval."""
+    qa_id = question.get("qa_id") or question.get("id") or "<unknown>"
+    query = str(question.get("question") or question.get("query") or "").strip()
+    print()
+    print("-" * 72)
+    print(f"DEBUG {qa_id}")
+    print(f"Question: {query}")
+    print(f"Returned rows: {len(rows)}")
+    normalized_rows = [(i + 1, row, norm(row.get("content"))) for i, row in enumerate(rows)]
+    print("Evidence status:")
+    for ev_idx, target in enumerate(evidence, 1):
+        matches = [(rank, row) for rank, row, content in normalized_rows if target in content or content in target]
+        if matches:
+            rank, row = matches[0]
+            print(f"  [{ev_idx}] HIT rank={rank} id={row.get('id')} source={row.get('source')} type={row.get('memory_type')}")
+        else:
+            print(f"  [{ev_idx}] MISS target={target[:180]}")
+    print(f"Top {min(debug_top_n, len(rows))} final candidates:")
+    for rank, row, _content in normalized_rows[:debug_top_n]:
+        metadata = row.get("metadata") or {}
+        reqs = row.get("_evidence_requirements") or metadata.get("_evidence_requirements") or []
+        content = str(row.get("content") or "").replace("\\n", " ").strip()
+        print(f"  {rank:3d}. score={float(row.get('score', 0.0)):.4f} id={row.get('id')} source={row.get('source')} type={row.get('memory_type')} reqs={reqs} :: {content[:220]}")
+
 def evaluate_sample(
     engine: MemoryEngine,
     sample: dict,
     user_id: str,
     top_k: int,
     limit: int | None,
+    debug: bool = False,
+    debug_top_n: int = 20,
 ) -> list[dict]:
     questions = extract_questions(sample)
     if limit is not None:
@@ -237,6 +264,9 @@ def evaluate_sample(
         )
 
         returned = [norm(row.get("content")) for row in rows]
+
+        if debug:
+            _debug_question(question, evidence, rows, max(1, debug_top_n))
 
         hits = 0
         for target in evidence:
@@ -311,6 +341,8 @@ def main() -> int:
     )
     parser.add_argument("--top-k", type=int, default=100)
     parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--debug", action="store_true", help="Print per-question evidence hit/miss diagnostics")
+    parser.add_argument("--debug-top-n", type=int, default=20, help="Final candidates to print per question in debug mode")
     args = parser.parse_args()
 
     dataset = Path(args.dataset)
@@ -336,6 +368,8 @@ def main() -> int:
                 user_id,
                 top_k=args.top_k,
                 limit=args.limit,
+                debug=args.debug,
+                debug_top_n=args.debug_top_n,
             )
             print(f"\\nSample {index + 1}/{len(samples)}: ingested {count} messages")
             summarize(results)
