@@ -5,14 +5,7 @@ from collections import defaultdict
 
 
 class MemoryReasoner:
-    """Deterministic query-time reasoning layer for AML reasoning gaps.
-
-    This is deliberately not a graph database or a replacement for P6 hybrid
-    retrieval. It operates on the already stored facts/events/relations and
-    protects three capabilities that retrieval alone does not express well:
-    current-state selection, temporal evidence ordering, and causal evidence
-    recall.
-    """
+    """Deterministic query-time reasoning layer for AML reasoning gaps."""
 
     STATE_MARKERS = (
         "现在", "目前", "当前", "最新", "现居", "如今", "current",
@@ -68,8 +61,6 @@ class MemoryReasoner:
         score = 0.80 + min(0.12, overlap * 0.12)
         if predicate_hint and predicate == predicate_hint:
             score += 0.10
-        # Active facts are the governed current state; history is intentionally
-        # never promoted by this path.
         if fact.get("status") == "active":
             score += 0.04
         return min(1.25, score)
@@ -97,19 +88,55 @@ class MemoryReasoner:
             score += 0.08
         if score:
             return score
-        # Chinese absolute/relative temporal wording often survives only in
-        # the original message; preserve a small lexical bonus.
         markers = re.findall(r"\d{4}年\d{1,2}月|\d{4}年|去年|前年|今年|上个月|本月|之前|以前|后来|之后", query or "")
         return min(0.12, 0.04 * sum(1 for m in markers if m in text))
+
+    @staticmethod
+    def _normalize(text: str) -> str:
+        return re.sub(r"[\s，。！？、,.!?；;:：]+", "", str(text or "")).lower()
+
+    @classmethod
+    def _protect_current_state(cls, query: str, out: list[dict], store, user_id: str):
+        """Promote active facts and suppress stale evidence for state queries.
+
+        P6 intentionally keeps historical raw/window evidence for recall. For a
+        current-state question, however, returning a stale fact in the first few
+        slots is harmful: the answer model can treat the old value as current.
+        We therefore keep historical rows available, but give rows containing a
+        superseded fact a strong negative score. This also handles derived
+        windows that contain both the old and new turn.
+        """
+        active = store.active_facts(user_id, include_history=False)
+        history = store.active_facts(user_id, include_history=True)
+        active_ids = {str(f.get("id")) for f in active}
+        stale = [f for f in history if str(f.get("id")) not in active_ids and f.get("status") != "active"]
+
+        stale_texts = []
+        for fact in stale:
+            content = cls._normalize(fact.get("content", ""))
+            if content:
+                stale_texts.append((content, fact.get("supersedes_id")))
+
+        for item in out:
+            content = cls._normalize(item.get("content", ""))
+            stale_hit = False
+            for old_text, _ in stale_texts:
+                if old_text and old_text in content:
+                    stale_hit = True
+                    break
+            if not stale_hit:
+                continue
+            item["score"] = min(float(item.get("score", 0.0)), -0.20)
+            md = dict(item.get("metadata") or {})
+            md["state_reasoning"] = True
+            md["stale_state_evidence"] = True
+            item["metadata"] = md
 
     @classmethod
     def augment(cls, query: str, plan, ranked: list[dict], store, user_id: str) -> list[dict]:
         out = [dict(item) for item in ranked]
         by_id = {item.get("id") for item in out}
 
-        # D1: current-state protection.  The governance layer already marks
-        # superseded facts inactive; this query-time layer makes that state
-        # visible even when lexical/dense retrieval preferred the old raw turn.
         if cls._is_state_query(query):
             for fact in store.active_facts(user_id, include_history=False):
                 score = cls._state_score(query, fact, getattr(plan, "predicate_hint", None))
@@ -139,10 +166,9 @@ class MemoryReasoner:
                 })
                 by_id.add(fact["id"])
 
-        # C1: temporal evidence ordering.  Do not hard-filter here: a date
-        # mention can be attached to a neighboring raw message while the event
-        # itself has a different timestamp. A positive score is safer than
-        # deleting potentially necessary evidence.
+            # Apply stale suppression after active facts have been injected.
+            cls._protect_current_state(query, out, store, user_id)
+
         if getattr(plan, "temporal", False):
             for item in out:
                 bonus = cls._temporal_score(query, item)
@@ -152,11 +178,6 @@ class MemoryReasoner:
                     md["temporal_reasoning"] = True
                     item["metadata"] = md
 
-        # B2: causal evidence recall.  The analyzer already extracts directed
-        # `causes` relations, but ordinary retrieval can discard them because
-        # causal questions contain abstract words rather than the exact cause
-        # text. Promote causal edges independently, then EvidenceChainBuilder
-        # can connect them with the rest of the candidate set.
         if cls._is_causal_query(query):
             relations = store.relations(user_id)
             query_entities = cls._tokens(query)
@@ -214,9 +235,6 @@ class MemoryReasoner:
                 })
                 by_id.add(rid)
 
-            # Also retain the raw causal sentence(s), because AML evidence is
-            # ultimately message-level and the directed relation alone may not
-            # contain enough linguistic context for the answer model.
             raws = store.all_raw(user_id)
             for raw in raws:
                 content = str(raw.get("content") or "")
