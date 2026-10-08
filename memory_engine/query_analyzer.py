@@ -243,6 +243,20 @@ class QueryAnalyzer:
             add("temporal", " ".join([*entities[:2], temporal]), entity=entities[0] if entities else None,
                 temporal=temporal, priority=22)
 
+        # Answer-shape requirements: broad questions such as "where", "what
+        # does X think ... look like", and attribute questions often have a
+        # concrete lexical detail that dense retrieval under-ranks. Reserve a
+        # targeted slot using answer-type vocabulary without inventing a
+        # benchmark-specific fact.
+        if entities:
+            subject = entities[0]
+            if lower.startswith("where ") or " where " in lower:
+                add("location", f"{subject} location place city area community", entity=subject, priority=24)
+            if "look like" in lower or "what does" in lower or "what do" in lower:
+                add("attribute", f"{subject} characteristics features details aspects", entity=subject, priority=23)
+            if any(x in lower for x in ("what is", "what are", "what was", "what were")):
+                add("attribute", f"{subject} details characteristics attributes", entity=subject, priority=18)
+
         # Preserve the full question for predicate-specific wording.
         add("full", plan.rewritten, priority=5)
 
