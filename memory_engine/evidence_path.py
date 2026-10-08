@@ -7,7 +7,7 @@ from typing import Any
 
 @dataclass
 class EvidencePath:
-    """A bounded query-time path over already retrieved/provenance evidence."""
+    """A bounded query-time path over retrieved and provenance-connected evidence."""
 
     node_ids: list[str] = field(default_factory=list)
     edge_types: list[str] = field(default_factory=list)
@@ -20,23 +20,12 @@ class EvidencePath:
 
 
 class EvidencePathReconstructor:
-    """Reconstruct small evidence paths instead of expanding the whole graph.
-
-    The retriever remains the source of candidates. This layer only follows
-    high-confidence persisted links and structured relations around those
-    candidates, using a small beam. Raw messages are fetched for promoted
-    path nodes so benchmark evidence is never represented only by a derived
-    relation.
-    """
+    """Reconstruct small evidence paths with beam search and hard bounds."""
 
     def __init__(self, max_hops: int = 3, beam_width: int = 8, neighbors_per_node: int = 6):
         self.max_hops = max(1, max_hops)
         self.beam_width = max(1, beam_width)
         self.neighbors_per_node = max(1, neighbors_per_node)
-
-    @staticmethod
-    def _requirement_score(item: dict[str, Any]) -> float:
-        return float(item.get("_requirement_score", 0.0) or 0.0)
 
     def _build_graph(self, link_rows: list[dict], relation_rows: list[dict]):
         graph = defaultdict(list)
@@ -50,24 +39,19 @@ class EvidencePathReconstructor:
             graph[source].append((target, relation, confidence))
             graph[target].append((source, relation, confidence))
 
-        # Structured relations connect derived memories. Keep their relation
-        # semantics so causal/final-hop traversal can be preferred later.
+        # Only connect structured relation endpoints when the persisted schema
+        # exposes their IDs; never invent graph nodes from text values.
         for rel in relation_rows:
-            rid = str(rel.get("id") or "")
-            if not rid:
-                continue
-            confidence = 0.90 if rel.get("predicate") in {"causes", "headquarters", "belongs_to", "located_in"} else 0.72
             subject_id = str(rel.get("subject_id") or "")
             object_id = str(rel.get("object_id") or "")
-            if subject_id and object_id:
-                graph[subject_id].append((object_id, str(rel.get("predicate") or "relation"), confidence))
-                graph[object_id].append((subject_id, str(rel.get("predicate") or "relation"), confidence))
-            # Relation IDs can still act as a bridge when endpoint IDs are not
-            # persisted in older databases; connect through textual endpoints
-            # in candidate metadata in the engine rather than inventing IDs.
-            if rid and subject_id:
-                graph[rid].append((subject_id, str(rel.get("predicate") or "relation"), confidence))
-                graph[subject_id].append((rid, str(rel.get("predicate") or "relation"), confidence))
+            if not subject_id or not object_id:
+                continue
+            confidence = 0.90 if rel.get("predicate") in {
+                "causes", "headquarters", "belongs_to", "located_in"
+            } else 0.72
+            predicate = str(rel.get("predicate") or "relation")
+            graph[subject_id].append((object_id, predicate, confidence))
+            graph[object_id].append((subject_id, predicate, confidence))
 
         for node, edges in list(graph.items()):
             graph[node] = sorted(edges, key=lambda x: x[2], reverse=True)[: self.neighbors_per_node]
@@ -87,14 +71,16 @@ class EvidencePathReconstructor:
         graph = self._build_graph(link_rows, relation_rows)
         by_id = {str(item.get("id")): item for item in candidates if item.get("id")}
         req_ids = {str(r.get("id")) for r in requirement_plans if r.get("id")}
+        if not graph:
+            return [], {}
 
-        # Seed from direct retrieval, not from arbitrary graph nodes. This is
-        # the main guard against graph noise and path explosion.
+        # Seeds are direct retrieval results. This prevents unrelated graph
+        # components from entering the search merely because they are connected.
         seeds = sorted(
             by_id.values(),
             key=lambda x: (
                 len(set(x.get("_evidence_requirements", []) or [])),
-                self._requirement_score(x),
+                float(x.get("_requirement_score", 0.0) or 0.0),
                 float(x.get("score", 0.0) or 0.0),
             ),
             reverse=True,
@@ -104,8 +90,7 @@ class EvidencePathReconstructor:
         for seed in seeds:
             sid = str(seed.get("id"))
             covered = set(seed.get("_evidence_requirements", []) or []) & req_ids
-            initial = EvidencePath([sid], [], covered, float(seed.get("score", 0.0) or 0.0))
-            beam = [initial]
+            beam = [EvidencePath([sid], [], covered, float(seed.get("score", 0.0) or 0.0))]
             for _ in range(self.max_hops):
                 expanded: list[EvidencePath] = []
                 for path in beam:
@@ -114,15 +99,18 @@ class EvidencePathReconstructor:
                         if other in path.node_ids:
                             continue
                         item = by_id.get(other)
-                        # Only follow graph nodes that are already retrieved or
-                        # whose raw provenance can be recovered by the engine.
-                        if item is None:
-                            continue
                         new_cov = set(path.covered_requirements)
-                        new_cov.update(item.get("_evidence_requirements", []) or [])
+                        if item:
+                            new_cov.update(item.get("_evidence_requirements", []) or [])
+                            item_score = float(item.get("score", 0.0) or 0.0)
+                        else:
+                            # The node can be recovered from raw provenance by
+                            # the caller. Give it a conservative score now.
+                            item_score = 0.18
+                        coverage = len(new_cov) / max(1, len(req_ids))
                         path_score = (
-                            0.45 * float(item.get("score", 0.0) or 0.0)
-                            + 0.35 * (len(new_cov) / max(1, len(req_ids)))
+                            0.45 * item_score
+                            + 0.35 * coverage
                             + 0.20 * confidence
                             - 0.03 * len(path.node_ids)
                         )
@@ -140,9 +128,7 @@ class EvidencePathReconstructor:
                 if req_ids and any(p.covered_requirements >= req_ids for p in beam):
                     break
 
-        # Keep only useful paths, deduplicate exact node sequences, and prefer
-        # coverage over raw similarity. This is deliberately small and bounded.
-        unique = {}
+        unique: dict[tuple[str, ...], EvidencePath] = {}
         for path in paths:
             key = tuple(path.node_ids)
             if key not in unique or path.score > unique[key].score:
@@ -155,18 +141,30 @@ class EvidencePathReconstructor:
 
         promotions: dict[str, dict] = {}
         for path in paths:
+            coverage = len(path.covered_requirements) / max(1, len(req_ids))
             for depth, node_id in enumerate(path.node_ids):
                 item = by_id.get(node_id)
-                if not item:
+                if item is None:
+                    promotions.setdefault(node_id, {
+                        "id": node_id,
+                        "path_score": path.score,
+                        "path_coverage": coverage,
+                        "path_depth": depth,
+                        "path_edge_types": list(path.edge_types),
+                    })
                     continue
                 md = dict(item.get("metadata") or {})
-                md["evidence_path"] = True
-                md["path_depth"] = min(depth, self.max_hops)
-                md["path_coverage"] = round(len(path.covered_requirements) / max(1, len(req_ids)), 4)
-                md["path_edge_types"] = list(path.edge_types)
+                md.update({
+                    "evidence_path": True,
+                    "path_depth": min(depth, self.max_hops),
+                    "path_coverage": round(coverage, 4),
+                    "path_edge_types": list(path.edge_types),
+                })
                 item["metadata"] = md
                 item["path_score"] = max(float(item.get("path_score", 0.0) or 0.0), path.score)
-                item["score"] = float(item.get("score", 0.0) or 0.0) + min(0.12, 0.04 * len(path.covered_requirements) + 0.02 * path.depth)
+                item["score"] = float(item.get("score", 0.0) or 0.0) + min(
+                    0.12, 0.04 * len(path.covered_requirements) + 0.02 * path.depth
+                )
                 promotions[node_id] = item
 
         return paths, promotions
