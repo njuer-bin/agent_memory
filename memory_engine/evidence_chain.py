@@ -20,6 +20,16 @@ class EvidenceChainBuilder:
         re.compile(r"^(.{1,40}?)(?:属于|隶属于|来自)\s*(.{1,40})$"),
     )
 
+    # Directed causal edges are kept separate from generic entity edges.
+    # They let a multi-hop query preserve cause -> intermediate -> outcome
+    # evidence instead of treating every connected entity as equivalent.
+    CAUSAL_PATTERNS = (
+        re.compile(r"(?:因为|由于)\\s*(.{1,80}?)\\s*(?:，|,)??\\s*(?:所以|因此|于是)\\s*(.{1,80})"),
+        re.compile(r"(.{1,60}?)\\s*(?:导致|造成|引发|使得)\\s*(.{1,60})"),
+        re.compile(r"(.{1,60}?)\\s*(?:是因为|源于)\\s*(.{1,60})"),
+        re.compile(r"(.{1,60}?)\\s*(?:的原因是)\\s*(.{1,60})"),
+    )
+
     FRIEND_PATTERNS = (
         re.compile(r"^(?:我的|我|用户的)?(?:朋友|同事|老板)\s*(?:是|叫|为)?\s*([A-Za-z0-9_\u4e00-\u9fff]{1,40})$"),
         re.compile(r"^(?:我的|我|用户的)?(?:朋友|同事|老板)\s+([A-Za-z0-9_\u4e00-\u9fff]{1,40})$"),
@@ -69,6 +79,19 @@ class EvidenceChainBuilder:
                     right = cls._clean_entity(match.group(2))
                     if left and right and left not in cls.STOP and right not in cls.STOP:
                         edges.append((left, right))
+
+            # Preserve causal direction.  For "effect 是因为 cause" and
+            # "effect 的原因是 cause", reverse the surface order so traversal
+            # remains cause -> effect.
+            for index, pattern in enumerate(cls.CAUSAL_PATTERNS):
+                for match in pattern.finditer(clause):
+                    left = cls._clean_entity(match.group(1))
+                    right = cls._clean_entity(match.group(2))
+                    if not left or not right:
+                        continue
+                    cause, effect = (left, right) if index < 2 else (right, left)
+                    if cause not in cls.STOP and effect not in cls.STOP:
+                        edges.append((cause, effect))
 
             for pattern in cls.FRIEND_PATTERNS:
                 for match in pattern.finditer(clause):
@@ -144,9 +167,14 @@ class EvidenceChainBuilder:
             result = dict(item)
             metadata = dict(result.get("metadata") or {})
             if item["id"] in connected_ids:
-                chain_score = min(0.12, 0.04 * max(1, len(edges_by_id.get(item["id"], []))))
+                chain_size = len(connected_ids)
+                chain_score = min(0.16, 0.025 * max(1, chain_size))
                 metadata["evidence_chain"] = True
-                metadata["path_completeness"] = 1.0
+                metadata["path_completeness"] = min(1.0, chain_size / 3.0)
+                metadata["causal_chain"] = any(
+                    (left, right) in edges_by_id.get(item["id"], [])
+                    for left, right in edges_by_id.get(item["id"], [])
+                )
                 metadata["chain_score"] = chain_score
                 result["score"] = round(float(result.get("score", 0.0)) + chain_score, 6)
             else:
