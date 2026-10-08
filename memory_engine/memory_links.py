@@ -57,10 +57,29 @@ class MemoryLinkBuilder:
             prev_entities = cls._entities(prev_content)
             overlap = len(current_entities & prev_entities)
             temporal = any(x in content for x in cls.TEMPORAL)
-            # Strong continuation: shared salient entities plus an explicit
-            # continuation/confirmation/update cue. This avoids linking every
-            # pair of adjacent messages.
-            if overlap >= 1 and temporal:
+            prev_core = re.sub(r"[。！？!?；;，,、\\s]+", "", prev_content)
+            current_core = re.sub(r"[。！？!?；;，,、\\s]+", "", content)
+            lexical_bridge = (
+                len(prev_core) >= 5 and prev_core in current_core
+            ) or (
+                len(current_core) >= 5 and current_core in prev_core
+            )
+            # Strong continuation: an explicit continuation cue, a shared
+            # salient entity, or direct lexical carry-over. The latter is
+            # critical for causal chains such as "migration unfinished" ->
+            # "because migration unfinished, launch postponed".
+            if lexical_bridge:
+                links.append({
+                    "source_id": prev["id"],
+                    "target_id": current_id,
+                    "relation": "evidence_continuation",
+                    "confidence": 0.94,
+                    "trigger": "lexical_carryover",
+                    "evidence": "",
+                    "session_id": session_id,
+                    "created_at": int(current.get("timestamp") or 0),
+                })
+            elif overlap >= 1 and temporal:
                 links.append({
                     "source_id": prev["id"],
                     "target_id": current_id,
