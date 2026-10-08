@@ -18,8 +18,9 @@ def test_memory_links_reconstruct_adjacent_causal_path(tmp_path):
     add(engine, "link-3", "s1", "上线被推迟，后来客户投诉增加。", 1704067400000)
 
     links = engine.store.memory_links("p8-causal-user")
-    assert links, links
-    assert any(x["source_id"] == links[0]["source_id"] for x in links)
+    assert len(links) >= 2, links
+    assert any(x["relation"] == "evidence_continuation" for x in links), links
+    assert any(x["relation"] == "evidence_continuation" and x["source_id"] != x["target_id"] for x in links), links
 
     rows = engine.search(SearchRequest(
         query="为什么客户投诉增加？",
