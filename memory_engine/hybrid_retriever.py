@@ -397,12 +397,12 @@ class HybridRetriever:
             conflict_penalty = -0.020 if d["memory_type"] == "fact" and d.get("metadata", {}).get("conflict_status") == "conflict" else 0.0
             deterministic = self._deterministic_signal(query, d)
             temporal_signal = 0.0
-            if temporal_start is not None or temporal_end is not None:
+            if start_time is not None or end_time is not None:
                 ts = int(d.get("timestamp") or 0)
                 in_range = True
-                if temporal_start is not None and ts < temporal_start:
+                if start_time is not None and ts < start_time:
                     in_range = False
-                if temporal_end is not None and ts > temporal_end:
+                if end_time is not None and ts > end_time:
                     in_range = False
                 if in_range:
                     temporal_signal = 0.045
