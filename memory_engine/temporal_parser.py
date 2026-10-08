@@ -122,7 +122,7 @@ def normalize_temporal(text: str, reference_ts: int) -> TemporalInfo:
     # Relative Chinese intervals.
     chinese_numbers = {"一": 1, "两": 2, "二": 2, "三": 3, "四": 4, "五": 5,
                        "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
-    m = re.search(r"([一二两三四五六七八九十\\d]+)天前", text)
+    m = re.search(r"([一二两三四五六七八九十\d]+)天前", text)
     if m:
         raw_n = m.group(1)
         n = chinese_numbers.get(raw_n, int(raw_n) if raw_n.isdigit() else 1)
@@ -130,7 +130,7 @@ def normalize_temporal(text: str, reference_ts: int) -> TemporalInfo:
         start = reference_ts - n * 86_400_000
         return TemporalInfo(m.group(0), start, end, "day", "before", 0.88)
 
-    m = re.search(r"([一二两三四五六七八九十\\d]+)周前", text)
+    m = re.search(r"([一二两三四五六七八九十\d]+)周前", text)
     if m:
         raw_n = m.group(1)
         n = chinese_numbers.get(raw_n, int(raw_n) if raw_n.isdigit() else 1)
@@ -146,7 +146,7 @@ def normalize_temporal(text: str, reference_ts: int) -> TemporalInfo:
             relation = "before" if delta < 0 else ("after" if delta > 0 else "at")
             return TemporalInfo(phrase, _ms(start_dt), _ms(end_dt), "week", relation, 0.94)
 
-    m = re.search(r"(\\d+)个月前", text)
+    m = re.search(r"(\d+)个月前", text)
     if m:
         n = int(m.group(1))
         total = base.year * 12 + base.month - 1 - n
