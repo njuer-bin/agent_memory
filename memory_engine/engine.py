@@ -11,6 +11,7 @@ from .evidence import EvidenceBuilder
 from .evidence_chain import EvidenceChainBuilder
 from .governance import MemoryGovernance
 from .hybrid_retriever import HybridRetriever
+from .memory_links import MemoryLinkBuilder
 from .models import new_id, now_ms
 from .query_analyzer import QueryAnalyzer
 from .reranker import LightweightReranker
@@ -35,6 +36,7 @@ class MemoryEngine:
         self.reranker = LightweightReranker()
         self.evidence = EvidenceBuilder()
         self.evidence_chain = EvidenceChainBuilder(max_hops=3)
+        self.memory_links = MemoryLinkBuilder()
 
     def add(self, request):
         # Claim request_id atomically before doing any writes. This closes the
@@ -79,6 +81,18 @@ class MemoryEngine:
                     "timestamp": ts,
                     "chunk_index": batch_idx,
                 })
+
+                # P8-A: persist only high-confidence provenance links. Raw
+                # messages remain canonical; links are an auxiliary path layer.
+                previous_raw = self.store.all_raw(request.user_id, request.session_id)[0:8]
+                for link in self.memory_links.build(
+                    {"id": raw_id, "user_id": request.user_id, "session_id": request.session_id,
+                     "content": msg.content, "timestamp": ts},
+                    previous_raw,
+                ):
+                    link["id"] = new_id("link")
+                    link["user_id"] = request.user_id
+                    self.store.insert_memory_link(link)
 
                 # 原始记忆同时写入 SQLite 和进程级向量索引，保证 Add -> Search 立即可见。
                 raw_vector = self.embedder.embed(msg.content)
@@ -336,6 +350,70 @@ class MemoryEngine:
                            "how did", "why", "cause", "caused", "because")
         )
         if causal_query and ranked:
+            # P8-A v2: reconstruct evidence paths from persisted raw-message
+            # links. This is deliberately separate from the entity relation
+            # retriever: direct retrieval guarantees coverage, while the link
+            # layer reconnects complementary fragments after the hit.
+            link_rows = self.store.memory_links(request.user_id)
+            link_by_node = {}
+            for link in link_rows:
+                link_by_node.setdefault(link["source_id"], []).append(link)
+                link_by_node.setdefault(link["target_id"], []).append(link)
+
+            ranked_by_id = {item.get("id"): item for item in ranked}
+            seed_ids = [item.get("id") for item in ranked[:32] if item.get("id")]
+            expanded_ids = set(seed_ids)
+            frontier = list(seed_ids)
+            for _depth in range(3):
+                next_frontier = []
+                for node_id in frontier:
+                    for link in link_by_node.get(node_id, []):
+                        other = link["target_id"] if link["source_id"] == node_id else link["source_id"]
+                        if other not in expanded_ids:
+                            expanded_ids.add(other)
+                            next_frontier.append(other)
+                frontier = next_frontier[:48]
+                if not frontier:
+                    break
+
+            missing_ids = [x for x in expanded_ids if x not in ranked_by_id]
+            if missing_ids:
+                raw_rows = self.store.raw_by_ids(request.user_id, missing_ids)
+                for raw in raw_rows[:48]:
+                    ranked.append({
+                        "id": raw["id"],
+                        "content": raw["content"],
+                        "role": raw["role"],
+                        "timestamp": raw["timestamp"],
+                        "user_id": raw["user_id"],
+                        "session_id": raw["session_id"],
+                        "score": 0.36,
+                        "source": "memory_link_path",
+                        "memory_type": "raw_message",
+                        "status": "active",
+                        "valid_from": raw["timestamp"],
+                        "valid_to": None,
+                        "metadata": {
+                            "memory_link_path": True,
+                            "path_seed": any(raw["id"] in expanded_ids for _ in [0]),
+                            "_evidence_requirements": [],
+                        },
+                    })
+
+            # Path coverage bonus: reward candidates that participate in a
+            # connected path seeded by multiple direct evidence requirements.
+            for item in ranked:
+                md = dict(item.get("metadata") or {})
+                if item.get("id") not in expanded_ids:
+                    continue
+                incident = link_by_node.get(item.get("id"), [])
+                if incident:
+                    md["memory_link_path"] = True
+                    md["link_count"] = len(incident)
+                    md["path_score"] = min(0.10, 0.025 * len(incident))
+                    item["score"] = float(item.get("score", 0.0)) + md["path_score"]
+                    item["metadata"] = md
+
             causal_req_ids = [
                 req["id"] for req in requirement_plans
                 if str(req.get("kind", "")).startswith("causal_")
