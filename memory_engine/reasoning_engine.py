@@ -3,17 +3,25 @@ from __future__ import annotations
 import re
 
 from .engine import MemoryEngine
+from .evidence_path import EvidencePathReconstructor
 from .reasoning import MemoryReasoner
 
 
 class ReasoningMemoryEngine(MemoryEngine):
     """P7 production wrapper around the stable P6 engine.
 
-    P6 remains the source of truth for retrieval. This wrapper adds a small
-    deterministic reasoning pass after retrieval so the AML endpoint can
-    benefit from state, temporal, and causal evidence without replacing the
-    proven P6 retrieval pipeline.
+    P6 remains the source of truth for retrieval. This wrapper adds deterministic
+    reasoning and, for multi-hop queries, a bounded evidence-path reconstruction
+    pass that can recover raw provenance fragments missed by the initial Top-K.
     """
+
+    def __init__(self, db_path="data/memory.db"):
+        super().__init__(db_path)
+        self.path_reconstructor = EvidencePathReconstructor(
+            max_hops=3,
+            beam_width=8,
+            neighbors_per_node=6,
+        )
 
     def search(self, request):
         rows = super().search(request)
@@ -35,6 +43,64 @@ class ReasoningMemoryEngine(MemoryEngine):
         ):
             plan.temporal = True
 
+        # P9: reconstruct short evidence paths from the already retrieved
+        # candidates plus persisted provenance links. Unlike a global graph
+        # traversal, seeds are restricted to retrieval hits and expansion is
+        # bounded by hop/beam/neighbor caps. Missing path nodes are recovered
+        # from canonical raw messages before the final reasoning pass.
+        if plan.multi_hop and len(rows) > 1:
+            requirement_plans = self.query_analyzer.evidence_requirements(plan)
+            link_rows = self.store.memory_links(request.user_id)
+            relation_rows = self.store.relations(request.user_id)
+            paths, promotions = self.path_reconstructor.reconstruct(
+                query=query,
+                candidates=rows,
+                requirement_plans=requirement_plans,
+                link_rows=link_rows,
+                relation_rows=relation_rows,
+            )
+
+            existing_ids = {str(row.get("id")) for row in rows}
+            missing_ids = [node_id for node_id in promotions if node_id not in existing_ids]
+            if missing_ids:
+                raw_rows = self.store.raw_by_ids(request.user_id, missing_ids[:16])
+                for raw in raw_rows:
+                    promotion = promotions.get(raw["id"], {})
+                    rows.append({
+                        "id": raw["id"],
+                        "content": raw["content"],
+                        "role": raw["role"],
+                        "timestamp": raw["timestamp"],
+                        "user_id": raw["user_id"],
+                        "session_id": raw["session_id"],
+                        "score": float(promotion.get("path_score", 0.18)) + 0.02,
+                        "source": "evidence_path_provenance",
+                        "memory_type": "raw",
+                        "status": "active",
+                        "valid_from": raw["timestamp"],
+                        "valid_to": None,
+                        "metadata": {
+                            "source_message_ids": [raw["id"]],
+                            "evidence_path": True,
+                            "path_coverage": promotion.get("path_coverage", 0.0),
+                            "path_depth": promotion.get("path_depth", 0),
+                            "path_edge_types": promotion.get("path_edge_types", []),
+                            "_evidence_requirements": [],
+                        },
+                    })
+
+            # Promote path members, but do not let path reconstruction replace
+            # the direct retrieval order wholesale. Coverage gets a bounded
+            # bonus; semantic retrieval remains the primary signal.
+            if paths:
+                rows.sort(
+                    key=lambda item: (
+                        float((item.get("metadata") or {}).get("path_coverage", 0.0) or 0.0),
+                        float(item.get("score", 0.0) or 0.0),
+                    ),
+                    reverse=True,
+                )
+
         rows = MemoryReasoner.augment(
             query=query,
             plan=plan,
@@ -45,7 +111,7 @@ class ReasoningMemoryEngine(MemoryEngine):
 
         # Re-apply the evidence-chain annotation after causal edges are added.
         # This is intentionally bounded to the returned P6 candidates plus a
-        # small reasoning expansion; it does not re-run retrieval.
+        # small reasoning/path expansion; it does not re-run retrieval.
         if plan.multi_hop and len(rows) > 1:
             rows = self.evidence_chain.annotate(plan.rewritten, rows)
 
