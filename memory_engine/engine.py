@@ -317,6 +317,116 @@ class MemoryEngine:
                 dedup[key] = r
 
         ranked = list(dedup.values())
+
+        # P8 causal evidence assembly: once a causal query has a seed
+        # candidate, walk the stored causes edges for up to three hops and
+        # inject the missing bridge/outcome evidence before reranking.  This is
+        # deliberately evidence retrieval, not answer generation.
+        causal_query = any(
+            marker in query
+            for marker in ("为什么", "为何", "原因", "导致", "因为", "所以", "因此",
+                           "how did", "why", "cause", "caused", "because")
+        )
+        if causal_query and ranked:
+            causal_req_ids = [
+                req["id"] for req in requirement_plans
+                if str(req.get("kind", "")).startswith("causal_")
+            ]
+            relation_rows = [
+                rel for rel in self.store.relations(request.user_id)
+                if rel.get("predicate") == "causes"
+            ]
+            frontier = set()
+            for item in ranked[:40]:
+                md = item.get("metadata", {}) or {}
+                for key in ("subject", "object", "value", "event"):
+                    value = str(md.get(key) or "").strip()
+                    if value and value not in {"user", "我", "用户"}:
+                        frontier.add(value)
+
+            # Also seed from causal relation endpoints already retrieved.
+            for rel in relation_rows:
+                if rel.get("subject") in frontier or rel.get("object") in frontier:
+                    frontier.add(str(rel.get("subject") or "").strip())
+                    frontier.add(str(rel.get("object") or "").strip())
+
+            selected_relations = []
+            seen_rel_ids = set()
+            for _hop in range(3):
+                if not frontier:
+                    break
+                next_frontier = set()
+                for rel in relation_rows:
+                    rid = rel.get("id")
+                    subject = str(rel.get("subject") or "").strip()
+                    object_ = str(rel.get("object") or "").strip()
+                    if rid in seen_rel_ids or not subject or not object_:
+                        continue
+                    if subject in frontier or object_ in frontier:
+                        selected_relations.append(rel)
+                        seen_rel_ids.add(rid)
+                        next_frontier.update({subject, object_})
+                if not next_frontier:
+                    break
+                frontier.update(next_frontier)
+
+            existing_ids = {item.get("id") for item in ranked}
+            raw_by_content = {
+                str(row.get("content") or "").strip(): row
+                for row in self.store.all_raw(request.user_id)
+            }
+            for rel in selected_relations[:16]:
+                rid = rel.get("id")
+                if rid in existing_ids:
+                    continue
+                item = {
+                    "id": rid,
+                    "content": rel.get("content", ""),
+                    "role": "relation",
+                    "timestamp": rel.get("timestamp", 0),
+                    "user_id": request.user_id,
+                    "session_id": "",
+                    "score": 0.42,
+                    "source": "causal_chain",
+                    "memory_type": "relation",
+                    "status": "active",
+                    "valid_from": rel.get("timestamp", 0),
+                    "valid_to": None,
+                    "metadata": {
+                        "subject": rel.get("subject"),
+                        "predicate": "causes",
+                        "object": rel.get("object"),
+                        "causal_hop_evidence": True,
+                        "_evidence_requirements": list(causal_req_ids),
+                    },
+                }
+                ranked.append(item)
+                existing_ids.add(rid)
+
+                raw = raw_by_content.get(str(rel.get("content") or "").strip())
+                if raw and raw["id"] not in existing_ids:
+                    ranked.append({
+                        "id": raw["id"],
+                        "content": raw["content"],
+                        "role": raw["role"],
+                        "timestamp": raw["timestamp"],
+                        "user_id": request.user_id,
+                        "session_id": raw["session_id"],
+                        "score": 0.40,
+                        "source": "causal_provenance",
+                        "memory_type": "raw",
+                        "status": "active",
+                        "valid_from": raw["timestamp"],
+                        "valid_to": None,
+                        "metadata": {
+                            "request_id": raw["request_id"],
+                            "source_message_ids": [raw["id"]],
+                            "causal_parent_id": rid,
+                            "_evidence_requirements": list(causal_req_ids),
+                        },
+                    })
+                    existing_ids.add(raw["id"])
+
         t0 = time.perf_counter()
         ranked = self.reranker.rerank(
             plan.rewritten,
