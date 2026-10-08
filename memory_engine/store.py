@@ -172,6 +172,24 @@ class SQLiteStore:
                 fingerprint TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS memory_links (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                relation TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                trigger TEXT NOT NULL,
+                evidence TEXT NOT NULL DEFAULT '',
+                session_id TEXT NOT NULL DEFAULT '',
+                created_at INTEGER NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_link_user_source
+                ON memory_links(user_id, source_id);
+            CREATE INDEX IF NOT EXISTS idx_link_user_target
+                ON memory_links(user_id, target_id);
+
             CREATE TABLE IF NOT EXISTS timeline_events (
                 id TEXT PRIMARY KEY,
                 user_id TEXT NOT NULL,
@@ -235,6 +253,9 @@ class SQLiteStore:
             "CREATE TABLE IF NOT EXISTS atomic_facts (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, subject TEXT NOT NULL, predicate TEXT NOT NULL, object TEXT NOT NULL, content TEXT NOT NULL, timestamp BIGINT NOT NULL, fingerprint TEXT NOT NULL, valid_from BIGINT NOT NULL, valid_to BIGINT, status TEXT NOT NULL DEFAULT 'active', supersedes_id TEXT, source TEXT NOT NULL DEFAULT 'user', conflict_status TEXT NOT NULL DEFAULT 'none', conflict_group_id TEXT)",
             "CREATE TABLE IF NOT EXISTS conflict_logs (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, predicate TEXT NOT NULL, old_fact_id TEXT, new_fact_id TEXT, old_object TEXT, new_object TEXT, resolution TEXT NOT NULL, reason TEXT, created_at BIGINT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS entity_relations (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, subject TEXT NOT NULL, predicate TEXT NOT NULL, object TEXT NOT NULL, content TEXT NOT NULL, timestamp BIGINT NOT NULL, fingerprint TEXT NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS memory_links (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, source_id TEXT NOT NULL, target_id TEXT NOT NULL, relation TEXT NOT NULL, confidence DOUBLE PRECISION NOT NULL, trigger TEXT NOT NULL, evidence TEXT NOT NULL DEFAULT '', session_id TEXT NOT NULL DEFAULT '', created_at BIGINT NOT NULL)",
+            "CREATE INDEX IF NOT EXISTS idx_link_user_source ON memory_links(user_id, source_id)",
+            "CREATE INDEX IF NOT EXISTS idx_link_user_target ON memory_links(user_id, target_id)",
             "CREATE TABLE IF NOT EXISTS timeline_events (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, event TEXT NOT NULL, content TEXT NOT NULL, timestamp BIGINT NOT NULL, fingerprint TEXT NOT NULL, event_start BIGINT, event_end BIGINT, temporal_text TEXT)",
             "CREATE TABLE IF NOT EXISTS rule_memories (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, rule TEXT NOT NULL, content TEXT NOT NULL, timestamp BIGINT NOT NULL, fingerprint TEXT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS user_profiles (user_id TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, content TEXT NOT NULL, timestamp BIGINT NOT NULL, PRIMARY KEY(user_id, key))",
@@ -341,6 +362,28 @@ class SQLiteStore:
                 VALUES(?,?,?,?,?,?,?,?)
             """, (r.id,r.user_id,r.subject,r.predicate,r.object,r.content,
                   r.timestamp,r.fingerprint))
+
+    def insert_memory_link(self, row: dict[str, Any]):
+        with self._lock, self.connect() as c:
+            c.execute("""
+                INSERT INTO memory_links
+                (id,user_id,source_id,target_id,relation,confidence,trigger,evidence,session_id,created_at)
+                VALUES(?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(id) DO NOTHING
+            """, (
+                row["id"], row["user_id"], row["source_id"], row["target_id"],
+                row["relation"], row["confidence"], row.get("trigger", ""),
+                row.get("evidence", ""), row.get("session_id", ""),
+                row.get("created_at", now_ms()),
+            ))
+
+    def memory_links(self, user_id: str):
+        with self._lock, self.connect() as c:
+            return [dict(r) for r in c.execute(
+                "SELECT * FROM memory_links WHERE user_id=? ORDER BY created_at DESC",
+                (user_id,)
+            ).fetchall()]
+
 
     def insert_event(self, e):
         with self._lock, self.connect() as c:
