@@ -396,7 +396,19 @@ class HybridRetriever:
             active_bonus = 0.005 if d["memory_type"] == "fact" and d["status"] == "active" else 0.0
             conflict_penalty = -0.020 if d["memory_type"] == "fact" and d.get("metadata", {}).get("conflict_status") == "conflict" else 0.0
             deterministic = self._deterministic_signal(query, d)
-            structured = score + type_bonus + relation_bonus + predicate_bonus + intent_bonus + entity_bonus + active_bonus + conflict_penalty + deterministic
+            temporal_signal = 0.0
+            if temporal_start is not None or temporal_end is not None:
+                ts = int(d.get("timestamp") or 0)
+                in_range = True
+                if temporal_start is not None and ts < temporal_start:
+                    in_range = False
+                if temporal_end is not None and ts > temporal_end:
+                    in_range = False
+                if in_range:
+                    temporal_signal = 0.045
+                elif temporal_relation != "after":
+                    temporal_signal = -0.018
+            structured = score + type_bonus + relation_bonus + predicate_bonus + intent_bonus + entity_bonus + active_bonus + conflict_penalty + deterministic + temporal_signal
             result.append((d, structured))
         result.sort(key=lambda x: x[1], reverse=True)
 
