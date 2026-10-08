@@ -253,8 +253,13 @@ class QueryAnalyzer:
             for term in [x for x in chinese_terms if x not in chinese_stop][:3]:
                 add("term", term, entity=term, priority=10)
 
-        if any(x in q for x in ("为什么","原因","导致","因为","所以","因此")):
-            add("causal", q + " 原因 导致 因果 结果", priority=24)
+        # Causal questions need independent evidence slots for cause,
+        # intermediate step, and outcome.  Treat these as evidence obligations
+        # rather than merely adding causal words to the same full-query search.
+        if any(x in q for x in ("为什么","原因","导致","因为","所以","因此","为何","how did","why")):
+            add("causal_cause", q + " 原因 前因 为什么 因为", priority=30)
+            add("causal_path", q + " 中间步骤 过程 导致 因此 所以", priority=29)
+            add("causal_effect", q + " 结果 后果 影响 导致", priority=28)
 
         requirements.sort(key=lambda r: (-r["priority"], r["id"]))
         for idx, item in enumerate(requirements[:4], 1):
