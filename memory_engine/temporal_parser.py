@@ -120,6 +120,42 @@ def normalize_temporal(text: str, reference_ts: int) -> TemporalInfo:
         return TemporalInfo(m.group(0), start, end, unit, "after", 0.78)
 
     # Relative Chinese intervals.
+    chinese_numbers = {"一": 1, "两": 2, "二": 2, "三": 3, "四": 4, "五": 5,
+                       "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+    m = re.search(r"([一二两三四五六七八九十\\d]+)天前", text)
+    if m:
+        raw_n = m.group(1)
+        n = chinese_numbers.get(raw_n, int(raw_n) if raw_n.isdigit() else 1)
+        end = reference_ts - (n - 1) * 86_400_000
+        start = reference_ts - n * 86_400_000
+        return TemporalInfo(m.group(0), start, end, "day", "before", 0.88)
+
+    m = re.search(r"([一二两三四五六七八九十\\d]+)周前", text)
+    if m:
+        raw_n = m.group(1)
+        n = chinese_numbers.get(raw_n, int(raw_n) if raw_n.isdigit() else 1)
+        end = reference_ts - (n * 7 - 1) * 86_400_000
+        start = reference_ts - n * 7 * 86_400_000
+        return TemporalInfo(m.group(0), start, end, "week", "before", 0.86)
+
+    for phrase, delta in (("上周", -1), ("本周", 0), ("下周", 1)):
+        if phrase in text:
+            week_start = base - timedelta(days=base.weekday())
+            start_dt = datetime(week_start.year, week_start.month, week_start.day, tzinfo=timezone.utc) + timedelta(weeks=delta)
+            end_dt = start_dt + timedelta(days=6, hours=23, minutes=59, seconds=59, milliseconds=999)
+            relation = "before" if delta < 0 else ("after" if delta > 0 else "at")
+            return TemporalInfo(phrase, _ms(start_dt), _ms(end_dt), "week", relation, 0.94)
+
+    m = re.search(r"(\\d+)个月前", text)
+    if m:
+        n = int(m.group(1))
+        total = base.year * 12 + base.month - 1 - n
+        y, mo = divmod(total, 12)
+        mo += 1
+        start, end = _month_range(y, mo)
+        return TemporalInfo(m.group(0), start, end, "month", "before", 0.86)
+
+    # Relative Chinese intervals.
     m = re.search(r"(\d+)年(?:前|以前)", text)
     if m:
         n = int(m.group(1))
