@@ -21,10 +21,26 @@ class MemoryLinkBuilder:
 
     @classmethod
     def _entities(cls, text: str) -> set[str]:
-        words = set(re.findall(r"[A-Za-z][A-Za-z0-9_-]{1,39}", text or ""))
-        words.update(x for x in re.findall(r"[\u4e00-\u9fff]{2,12}", text or "") if x not in {"因为", "所以", "导致", "然后", "现在", "这个", "那个"})
-        return {x for x in words if len(x) >= 2}
+        """Extract stable lexical anchors for lightweight cross-message linking.
 
+        Chinese does not have whitespace-delimited tokens, so treating a whole
+        Chinese span as one entity misses obvious anchors such as 北京 in
+        我在北京工作 vs 北京项目后来确认有效. Keep Latin tokens as-is and add
+        short Chinese 2-4 character n-grams; short stopwords are removed.
+        """
+        text = text or ""
+        words = set(re.findall(r"[A-Za-z][A-Za-z0-9_-]{1,39}", text))
+        chinese_spans = re.findall(r"[\u4e00-\u9fff]+", text)
+        stop = {"因为", "所以", "导致", "然后", "现在", "这个", "那个", "后来", "之后", "确认", "有效"}
+        for span in chinese_spans:
+            if 2 <= len(span) <= 12:
+                words.add(span)
+            for n in (2, 3, 4):
+                for i in range(0, max(0, len(span) - n + 1)):
+                    gram = span[i:i + n]
+                    if gram not in stop:
+                        words.add(gram)
+        return {x for x in words if len(x) >= 2}
     @classmethod
     def build(cls, current: dict, previous: list[dict]) -> list[dict]:
         links = []
