@@ -205,8 +205,56 @@ def evidence_texts(question: dict) -> list[str]:
     return []
 
 
-def _debug_question(question: dict, evidence: list[str], rows: list[dict], debug_top_n: int) -> None:
-    """Print final message-level evidence diagnostics without changing retrieval."""
+def _semantic_match(
+    target: str,
+    normalized_rows: list[tuple[int, dict, str]],
+    embedder,
+    threshold: float,
+) -> tuple[float, int | None, dict | None]:
+    """Find the strongest semantic candidate for one gold evidence message.
+
+    This is diagnostic-only. It never changes the official exact-match metric
+    or the retrieval result ordering. Reusing the engine's embedding provider
+    also keeps the diagnostic in the same embedding space as retrieval.
+    """
+    if not target or embedder is None:
+        return 0.0, None, None
+
+    target_vec = embedder.embed(target)
+    best_score = -1.0
+    best_rank = None
+    best_row = None
+
+    for rank, row, content in normalized_rows:
+        if not content:
+            continue
+        score = float(embedder.cosine(target_vec, embedder.embed(content))) if hasattr(embedder, "cosine") else 0.0
+        if score > best_score:
+            best_score = score
+            best_rank = rank
+            best_row = row
+
+    return best_score, best_rank, best_row
+
+
+def _cosine(a: list[float], b: list[float]) -> float:
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b))
+    na = sum(x * x for x in a) ** 0.5
+    nb = sum(x * x for x in b) ** 0.5
+    return dot / (na * nb) if na and nb else 0.0
+
+
+def _debug_question(
+    question: dict,
+    evidence: list[str],
+    rows: list[dict],
+    debug_top_n: int,
+    embedder=None,
+    semantic_threshold: float = 0.65,
+) -> dict:
+    """Print exact/semantic evidence diagnostics without changing retrieval."""
     qa_id = question.get("qa_id") or question.get("id") or "<unknown>"
     query = str(question.get("question") or question.get("query") or "").strip()
     print()
@@ -215,20 +263,64 @@ def _debug_question(question: dict, evidence: list[str], rows: list[dict], debug
     print(f"Question: {query}")
     print(f"Returned rows: {len(rows)}")
     normalized_rows = [(i + 1, row, norm(row.get("content"))) for i, row in enumerate(rows)]
+    semantic_hits = 0
+    true_misses = 0
+
     print("Evidence status:")
     for ev_idx, target in enumerate(evidence, 1):
-        matches = [(rank, row) for rank, row, content in normalized_rows if target in content or content in target]
+        matches = [
+            (rank, row)
+            for rank, row, content in normalized_rows
+            if target in content or content in target
+        ]
         if matches:
             rank, row = matches[0]
-            print(f"  [{ev_idx}] HIT rank={rank} id={row.get('id')} source={row.get('source')} type={row.get('memory_type')}")
+            print(
+                f"  [{ev_idx}] EXACT HIT rank={rank} id={row.get('id')} "
+                f"source={row.get('source')} type={row.get('memory_type')}"
+            )
+            continue
+
+        score, rank, row = _semantic_match(
+            target,
+            normalized_rows,
+            embedder,
+            semantic_threshold,
+        )
+        if row is not None and score >= semantic_threshold:
+            semantic_hits += 1
+            print(
+                f"  [{ev_idx}] SEMANTIC HIT score={score:.4f} rank={rank} "
+                f"id={row.get('id')} source={row.get('source')} "
+                f"type={row.get('memory_type')} target={target[:160]}"
+            )
         else:
-            print(f"  [{ev_idx}] MISS target={target[:180]}")
+            true_misses += 1
+            if row is not None:
+                print(
+                    f"  [{ev_idx}] TRUE MISS best_score={score:.4f} rank={rank} "
+                    f"id={row.get('id')} target={target[:160]}"
+                )
+            else:
+                print(f"  [{ev_idx}] TRUE MISS target={target[:180]}")
+
+    print(
+        f"Diagnostic summary: exact={sum(1 for target in evidence if any("
+        f"target in content or content in target for _, _, content in normalized_rows))} "
+        f"semantic={semantic_hits} true_miss={true_misses}"
+    )
     print(f"Top {min(debug_top_n, len(rows))} final candidates:")
     for rank, row, _content in normalized_rows[:debug_top_n]:
         metadata = row.get("metadata") or {}
         reqs = row.get("_evidence_requirements") or metadata.get("_evidence_requirements") or []
         content = str(row.get("content") or "").replace("\\n", " ").strip()
-        print(f"  {rank:3d}. score={float(row.get('score', 0.0)):.4f} id={row.get('id')} source={row.get('source')} type={row.get('memory_type')} reqs={reqs} :: {content[:220]}")
+        print(
+            f"  {rank:3d}. score={float(row.get('score', 0.0)):.4f} "
+            f"id={row.get('id')} source={row.get('source')} "
+            f"type={row.get('memory_type')} reqs={reqs} :: {content[:220]}"
+        )
+
+    return {"semantic_hits": semantic_hits, "true_misses": true_misses}
 
 def evaluate_sample(
     engine: MemoryEngine,
@@ -238,6 +330,7 @@ def evaluate_sample(
     limit: int | None,
     debug: bool = False,
     debug_top_n: int = 20,
+    semantic_threshold: float = 0.65,
 ) -> list[dict]:
     questions = extract_questions(sample)
     if limit is not None:
@@ -265,8 +358,16 @@ def evaluate_sample(
 
         returned = [norm(row.get("content")) for row in rows]
 
+        diagnostic = {"semantic_hits": 0, "true_misses": 0}
         if debug:
-            _debug_question(question, evidence, rows, max(1, debug_top_n))
+            diagnostic = _debug_question(
+                question,
+                evidence,
+                rows,
+                max(1, debug_top_n),
+                embedder=engine.embedder,
+                semantic_threshold=semantic_threshold,
+            )
 
         hits = 0
         for target in evidence:
@@ -284,6 +385,8 @@ def evaluate_sample(
                 "complete": hits == len(evidence),
                 "top_k": top_k,
                 "hop_count": len(evidence),
+                "semantic_hits": diagnostic["semantic_hits"],
+                "true_misses": diagnostic["true_misses"],
             }
         )
 
@@ -343,6 +446,12 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=None)
     parser.add_argument("--debug", action="store_true", help="Print per-question evidence hit/miss diagnostics")
     parser.add_argument("--debug-top-n", type=int, default=20, help="Final candidates to print per question in debug mode")
+    parser.add_argument(
+        "--semantic-threshold",
+        type=float,
+        default=0.65,
+        help="Diagnostic-only embedding similarity threshold for SEMANTIC HIT",
+    )
     args = parser.parse_args()
 
     dataset = Path(args.dataset)
@@ -370,6 +479,7 @@ def main() -> int:
                 limit=args.limit,
                 debug=args.debug,
                 debug_top_n=args.debug_top_n,
+                semantic_threshold=args.semantic_threshold,
             )
             print(f"\\nSample {index + 1}/{len(samples)}: ingested {count} messages")
             summarize(results)
