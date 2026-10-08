@@ -24,10 +24,10 @@ class EvidenceChainBuilder:
     # They let a multi-hop query preserve cause -> intermediate -> outcome
     # evidence instead of treating every connected entity as equivalent.
     CAUSAL_PATTERNS = (
-        re.compile(r"(?:因为|由于)\\s*(.{1,80}?)\\s*(?:，|,)??\\s*(?:所以|因此|于是)\\s*(.{1,80})"),
-        re.compile(r"(.{1,60}?)\\s*(?:导致|造成|引发|使得)\\s*(.{1,60})"),
-        re.compile(r"(.{1,60}?)\\s*(?:是因为|源于)\\s*(.{1,60})"),
-        re.compile(r"(.{1,60}?)\\s*(?:的原因是)\\s*(.{1,60})"),
+        re.compile(r"(?:因为|由于)\s*(.{1,80}?)\s*(?:，|,)??\s*(?:所以|因此|于是)\s*(.{1,80})"),
+        re.compile(r"(.{1,60}?)\s*(?:导致|造成|引发|使得)\s*(.{1,60})"),
+        re.compile(r"(.{1,60}?)\s*(?:是因为|源于)\s*(.{1,60})"),
+        re.compile(r"(.{1,60}?)\s*(?:的原因是)\s*(.{1,60})"),
     )
 
     FRIEND_PATTERNS = (
@@ -171,10 +171,7 @@ class EvidenceChainBuilder:
                 chain_score = min(0.16, 0.025 * max(1, chain_size))
                 metadata["evidence_chain"] = True
                 metadata["path_completeness"] = min(1.0, chain_size / 3.0)
-                metadata["causal_chain"] = any(
-                    (left, right) in edges_by_id.get(item["id"], [])
-                    for left, right in edges_by_id.get(item["id"], [])
-                )
+                metadata["causal_chain"] = bool(edges_by_id.get(item["id"], []))
                 metadata["chain_score"] = chain_score
                 result["score"] = round(float(result.get("score", 0.0)) + chain_score, 6)
             else:
