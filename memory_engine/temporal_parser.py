@@ -28,11 +28,24 @@ def _base(ts: int) -> datetime:
     return datetime.fromtimestamp(ts / 1000, tz=timezone.utc)
 
 
-def normalize_temporal(text: str, reference_ts: int) -> TemporalInfo:
-    """把常见中文时间表达归一化为 [start, end] 毫秒区间。
+def _year_range(year: int) -> tuple[int, int]:
+    start = _ms(datetime(year, 1, 1, tzinfo=timezone.utc))
+    end = _ms(datetime(year, 12, 31, 23, 59, 59, 999000, tzinfo=timezone.utc))
+    return start, end
 
-    这是无模型 deterministic parser，目标是让 current/history/event ordering
-    有稳定的结构化信号，而不是追求完整自然语言时间理解。
+
+def _month_range(year: int, month: int) -> tuple[int, int]:
+    start = _ms(datetime(year, month, 1, tzinfo=timezone.utc))
+    end = _ms(datetime(year, month, monthrange(year, month)[1], 23, 59, 59, 999000, tzinfo=timezone.utc))
+    return start, end
+
+
+def normalize_temporal(text: str, reference_ts: int) -> TemporalInfo:
+    """Normalize common Chinese and English temporal expressions.
+
+    The parser is deterministic and intentionally conservative. It supplies
+    retrieval/order constraints; it does not try to answer temporal questions
+    by itself.
     """
     if not text:
         return TemporalInfo()
@@ -40,7 +53,7 @@ def normalize_temporal(text: str, reference_ts: int) -> TemporalInfo:
     base = _base(reference_ts)
     year = base.year
 
-    # 绝对日期：2026-03-12 / 2026年3月12日
+    # Absolute dates: 2026-03-12 / 2026年3月12日 / March 12, 2026.
     m = re.search(r"(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})日?", text)
     if m:
         y, mo, d = map(int, m.groups())
@@ -48,39 +61,92 @@ def normalize_temporal(text: str, reference_ts: int) -> TemporalInfo:
         start = _ms(dt)
         return TemporalInfo(m.group(0), start, start + 86_399_999, "day", "at")
 
-    # 月份：2026年3月
+    m = re.search(
+        r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})(?:st|nd|rd|th)?[,]?\s+(20\d{2})\b",
+        text, flags=re.I,
+    )
+    if m:
+        month = datetime.strptime(m.group(1)[:3], "%b").month
+        d, y = int(m.group(2)), int(m.group(3))
+        dt = datetime(y, month, d, tzinfo=timezone.utc)
+        start = _ms(dt)
+        return TemporalInfo(m.group(0), start, start + 86_399_999, "day", "at")
+
+    # Month: 2026年3月 / March 2026 / July 2022.
     m = re.search(r"(20\d{2})年(\d{1,2})月", text)
     if m:
         y, mo = map(int, m.groups())
-        dt = datetime(y, mo, 1, tzinfo=timezone.utc)
-        end = datetime(y, mo, monthrange(y, mo)[1], 23, 59, 59, 999000, tzinfo=timezone.utc)
-        return TemporalInfo(m.group(0), _ms(dt), _ms(end), "month", "at")
+        start, end = _month_range(y, mo)
+        return TemporalInfo(m.group(0), start, end, "month", "at")
 
-    # 相对年份
+    m = re.search(
+        r"\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(20\d{2})\b",
+        text, flags=re.I,
+    )
+    if m:
+        month = datetime.strptime(m.group(1)[:3], "%b").month
+        y = int(m.group(2))
+        start, end = _month_range(y, month)
+        return TemporalInfo(m.group(0), start, end, "month", "at")
+
+    # Bare year: 2022 / in 2022.
+    m = re.search(r"\b((?:19|20)\d{2})\b", text)
+    if m:
+        y = int(m.group(1))
+        start, end = _year_range(y)
+        return TemporalInfo(m.group(0), start, end, "year", "at", 0.92)
+
+    number_words = {
+        "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+        "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+    }
+    # Relative English intervals: 4 years ago / two months later.
+    m = re.search(r"\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(day|week|month|year)s?\s+ago\b", text, flags=re.I)
+    if m:
+        n = number_words.get(m.group(1).lower(), int(m.group(1)) if m.group(1).isdigit() else 1)
+        unit = m.group(2).lower()
+        days = n * {"day": 1, "week": 7, "month": 30, "year": 365}[unit]
+        end = reference_ts - (days - 1) * 86_400_000
+        start = reference_ts - days * 86_400_000
+        return TemporalInfo(m.group(0), start, end, unit, "before", 0.88)
+
+    m = re.search(r"\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(day|week|month|year)s?\s+(?:later|after)\b", text, flags=re.I)
+    if m:
+        n = number_words.get(m.group(1).lower(), int(m.group(1)) if m.group(1).isdigit() else 1)
+        unit = m.group(2).lower()
+        days = n * {"day": 1, "week": 7, "month": 30, "year": 365}[unit]
+        start = reference_ts + days * 86_400_000
+        end = start + 86_399_999
+        return TemporalInfo(m.group(0), start, end, unit, "after", 0.78)
+
+    # Relative Chinese intervals.
+    m = re.search(r"(\d+)年(?:前|以前)", text)
+    if m:
+        n = int(m.group(1))
+        end = reference_ts - n * 365 * 86_400_000
+        start = end - 31 * 86_400_000
+        return TemporalInfo(m.group(0), start, end, "year", "before", 0.82)
+
     for phrase, delta in (("前年", -2), ("去年", -1), ("明年", 1)):
         if phrase in text:
             y = year + delta
-            start = _ms(datetime(y, 1, 1, tzinfo=timezone.utc))
-            end = _ms(datetime(y, 12, 31, 23, 59, 59, 999000, tzinfo=timezone.utc))
+            start, end = _year_range(y)
             relation = "before" if delta < 0 else "after"
             return TemporalInfo(phrase, start, end, "year", relation, 0.95)
 
     if "今年" in text:
-        start = _ms(datetime(year, 1, 1, tzinfo=timezone.utc))
-        end = _ms(datetime(year, 12, 31, 23, 59, 59, 999000, tzinfo=timezone.utc))
+        start, end = _year_range(year)
         return TemporalInfo("今年", start, end, "year", "at", 0.98)
 
     if "上个月" in text or "上月" in text:
         y, mo = year, base.month - 1
         if mo == 0:
             y, mo = y - 1, 12
-        start = _ms(datetime(y, mo, 1, tzinfo=timezone.utc))
-        end = _ms(datetime(y, mo, monthrange(y, mo)[1], 23, 59, 59, 999000, tzinfo=timezone.utc))
+        start, end = _month_range(y, mo)
         return TemporalInfo("上个月", start, end, "month", "before", 0.95)
 
     if "这个月" in text or "本月" in text:
-        start = _ms(datetime(year, base.month, 1, tzinfo=timezone.utc))
-        end = _ms(datetime(year, base.month, monthrange(year, base.month)[1], 23, 59, 59, 999000, tzinfo=timezone.utc))
+        start, end = _month_range(year, base.month)
         return TemporalInfo("本月", start, end, "month", "at", 0.98)
 
     if "昨天" in text:
@@ -103,7 +169,7 @@ def normalize_temporal(text: str, reference_ts: int) -> TemporalInfo:
     if "之后" in text or "后来" in text:
         return TemporalInfo("之后" if "之后" in text else "后来", reference_ts, None, "open", "after", 0.85)
 
-    if "最近" in text:
+    if "最近" in text or re.search(r"\brecently\b", text, flags=re.I):
         return TemporalInfo("最近", reference_ts - 30 * 86_400_000, reference_ts, "range", "near", 0.8)
 
     return TemporalInfo()
