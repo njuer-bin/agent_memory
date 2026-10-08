@@ -50,7 +50,7 @@ class QueryAnalyzer:
     TEMPORAL_MARKERS = (
         "现在", "目前", "当前", "以前", "之前", "后来", "之后",
         "最近", "当时", "历史", "过去", "去年", "前年", "今年",
-        "曾经", "上个月", "本月", "昨天", "今天", "明天",
+        "曾经", "上个月", "本月", "上周", "本周", "下周", "昨天", "今天", "明天",
     )
 
     def analyze(self, query: str, forced_multi_hop=None, reference_ts=None) -> QueryPlan:
@@ -225,6 +225,8 @@ class QueryAnalyzer:
             q, flags=re.I,
         )
         temporal = " ".join(dict.fromkeys([*months, *years]))
+        if plan.temporal and not temporal:
+            temporal = plan.original
 
         # Per-entity retrieval is mandatory for multi-entity questions.
         for entity in entities[:3]:
