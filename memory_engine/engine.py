@@ -84,7 +84,10 @@ class MemoryEngine:
 
                 # P8-A: persist only high-confidence provenance links. Raw
                 # messages remain canonical; links are an auxiliary path layer.
-                previous_raw = self.store.all_raw(request.user_id, request.session_id)[0:8]
+                previous_raw = [
+                    row for row in self.store.all_raw(request.user_id, request.session_id)
+                    if row.get("id") != raw_id
+                ][:8]
                 for link in self.memory_links.build(
                     {"id": raw_id, "user_id": request.user_id, "session_id": request.session_id,
                      "content": msg.content, "timestamp": ts},
