@@ -185,6 +185,14 @@ class MemoryEngine:
         # evidence requirement also receives an independent candidate quota.
         requirement_plans = self.query_analyzer.evidence_requirements(plan) if plan.multi_hop else []
         requirement_by_id = {r["id"]: r for r in requirement_plans}
+        # P8-B: apply normalized query time as a retrieval constraint.
+        # Open after/after-latest expressions are not used as hard filters.
+        temporal_start = request.start_time
+        temporal_end = request.end_time
+        if temporal_start is None and plan.temporal_relation != "after":
+            temporal_start = plan.temporal_start
+        if temporal_end is None and plan.temporal_relation != "after":
+            temporal_end = plan.temporal_end
 
         def _merge_candidates(rows, requirement_id=None):
             for d, score in rows:
@@ -213,7 +221,7 @@ class MemoryEngine:
                 user_id=request.user_id, query=rq,
                 top_k=max(40, request.top_k * 8),
                 include_history=request.include_history or ("历史" in query or "以前" in query or "之前" in query),
-                session_id=request.session_id, start_time=request.start_time, end_time=request.end_time,
+                session_id=request.session_id, start_time=temporal_start, end_time=temporal_end,
                 memory_types=request.memory_types, memory_type_hint=plan.memory_type_hint,
                 temporal_relation=plan.temporal_relation, relation_hint=plan.relation_hint,
                 sparse_query=rq, predicate_hint=plan.predicate_hint, intent_hint=plan.intent_hint,
