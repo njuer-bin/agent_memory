@@ -304,9 +304,13 @@ def _debug_question(
             else:
                 print(f"  [{ev_idx}] TRUE MISS target={target[:180]}")
 
+    exact_hits = sum(
+        1
+        for target in evidence
+        if any(target in content or content in target for _, _, content in normalized_rows)
+    )
     print(
-        f"Diagnostic summary: exact={sum(1 for target in evidence if any("
-        f"target in content or content in target for _, _, content in normalized_rows))} "
+        f"Diagnostic summary: exact={exact_hits} "
         f"semantic={semantic_hits} true_miss={true_misses}"
     )
     print(f"Top {min(debug_top_n, len(rows))} final candidates:")
