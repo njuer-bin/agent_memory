@@ -228,7 +228,7 @@ def _semantic_match(
     for rank, row, content in normalized_rows:
         if not content:
             continue
-        score = float(embedder.cosine(target_vec, embedder.embed(content))) if hasattr(embedder, "cosine") else 0.0
+        score = _cosine(target_vec, embedder.embed(content))
         if score > best_score:
             best_score = score
             best_rank = rank
