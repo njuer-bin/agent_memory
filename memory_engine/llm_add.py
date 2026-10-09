@@ -50,7 +50,8 @@ def _persist_extracted(engine, request, messages: list[dict[str, Any]], extracte
             )
             inserted, _ = engine.governance.accept_fact(fact)
             if inserted:
-                vector = engine.embedder.embed(fact.content)
+                vector_text = f"{subject} {predicate} {object_} {text}"
+                vector = engine.embedder.embed(vector_text)
                 engine.store.embed(fact.id, request.user_id, vector)
                 engine.vector_index.add(request.user_id, fact.id, vector)
 
@@ -74,7 +75,12 @@ def _persist_extracted(engine, request, messages: list[dict[str, Any]], extracte
                 fingerprint=fingerprint(request.user_id, "rel", subject, predicate, object_),
             )
             engine.store.insert_relation(rel)
-            vector = engine.embedder.embed(rel.content)
+            # Include graph semantics in the vector representation. The
+            # returned evidence remains the concise natural-language content,
+            # while dense retrieval can now match queries such as "why" to a
+            # relation whose predicate is "reason".
+            vector_text = f"{subject} {predicate} {object_} {text}"
+            vector = engine.embedder.embed(vector_text)
             engine.store.embed(rel.id, request.user_id, vector)
             engine.vector_index.add(request.user_id, rel.id, vector)
 
@@ -93,7 +99,8 @@ def _persist_extracted(engine, request, messages: list[dict[str, Any]], extracte
                 temporal_text=temporal.text,
             )
             engine.store.insert_event(obj)
-            vector = engine.embedder.embed(obj.content)
+            vector_text = f"{event} {text}"
+            vector = engine.embedder.embed(vector_text)
             engine.store.embed(obj.id, request.user_id, vector)
             engine.vector_index.add(request.user_id, obj.id, vector)
 
@@ -110,7 +117,8 @@ def _persist_extracted(engine, request, messages: list[dict[str, Any]], extracte
                 fingerprint=fingerprint(request.user_id, "rule", rule),
             )
             engine.store.insert_rule(obj)
-            vector = engine.embedder.embed(obj.content)
+            vector_text = f"{rule} {text}"
+            vector = engine.embedder.embed(vector_text)
             engine.store.embed(obj.id, request.user_id, vector)
             engine.vector_index.add(request.user_id, obj.id, vector)
 
@@ -121,10 +129,19 @@ def _persist_extracted(engine, request, messages: list[dict[str, Any]], extracte
             value = str(row.get("value") or "").strip()
             text = str(row.get("content") or content).strip()
             if key and value:
-                engine.store.upsert_profile(Profile(
+                profile = Profile(
                     user_id=request.user_id, key=key, value=value,
                     content=text, timestamp=timestamp,
-                ))
+                )
+                engine.store.upsert_profile(profile)
+                # Profiles used to be stored only in the sparse retrieval
+                # corpus. Give them a dense representation too, using the key
+                # and value as explicit semantic anchors.
+                vector_text = f"{key} {value} {text}"
+                vector = engine.embedder.embed(vector_text)
+                profile_id = f"profile:{request.user_id}:{key}"
+                engine.store.embed(profile_id, request.user_id, vector)
+                engine.vector_index.add(request.user_id, profile_id, vector)
 
 
 def add_with_llm(engine, request) -> bool:
