@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from .analyzer import Event, Fact, Profile, Relation, Rule
 from .llm_analyzer import extract_batch
-from .models import fingerprint, new_id
+from .models import fingerprint, new_id, now_ms
 from .temporal_parser import normalize_temporal
 
 
@@ -25,7 +24,7 @@ def _persist_extracted(engine, request, messages: list[dict[str, Any]], extracte
         item = by_index.get(index)
         if not item:
             continue
-        timestamp = int(message["timestamp"])
+        timestamp = int(message.get("timestamp") or now_ms())
         content = str(message["content"])
         temporal = normalize_temporal(content, timestamp)
 
@@ -113,7 +112,7 @@ def _persist_extracted(engine, request, messages: list[dict[str, Any]], extracte
             engine.store.insert_rule(obj)
             vector = engine.embedder.embed(obj.content)
             engine.store.embed(obj.id, request.user_id, vector)
-            engine.vector_index.add(request.user_id, obj.id, vector)
+            engine.vector_index.add(request.user_id, obj.id, obj_vector)
 
         for row in item.get("profiles", []) or []:
             if not isinstance(row, dict):
@@ -129,7 +128,7 @@ def _persist_extracted(engine, request, messages: list[dict[str, Any]], extracte
 
 
 def add_with_llm(engine, request) -> bool:
-    """AML-compliant Add: claim -> gpt-4o-mini -> deterministic engine -> persist LLM memories."""
+    """AML Add: claim -> gpt-4o-mini -> canonical storage -> LLM memory persistence."""
     if not engine.store.claim_request(request.request_id, request.user_id):
         return True
 
@@ -150,18 +149,22 @@ def add_with_llm(engine, request) -> bool:
         extracted_batches = []
         for batch in batches:
             messages = [
-                {"message_index": i, "role": msg.role, "content": msg.content, "timestamp": msg.timestamp or 0}
+                {
+                    "message_index": i,
+                    "role": msg.role,
+                    "content": msg.content,
+                    "timestamp": msg.timestamp or now_ms(),
+                }
                 for i, msg in enumerate(batch)
             ]
             extracted_batches.append((messages, extract_batch(messages)))
 
         # Reuse the existing canonical raw-history and deterministic storage path.
+        # The deterministic analyzer remains a conservative fallback/compatibility
+        # layer; LLM-derived memories are persisted alongside it with provenance.
         engine._add_claimed(request)
 
         for messages, extracted in extracted_batches:
-            for message in messages:
-                if not message["timestamp"]:
-                    message["timestamp"] = 0
             _persist_extracted(engine, request, messages, extracted)
         return True
     except Exception:
