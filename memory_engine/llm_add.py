@@ -112,7 +112,7 @@ def _persist_extracted(engine, request, messages: list[dict[str, Any]], extracte
             engine.store.insert_rule(obj)
             vector = engine.embedder.embed(obj.content)
             engine.store.embed(obj.id, request.user_id, vector)
-            engine.vector_index.add(request.user_id, obj.id, obj_vector)
+            engine.vector_index.add(request.user_id, obj.id, vector)
 
         for row in item.get("profiles", []) or []:
             if not isinstance(row, dict):
