@@ -8,7 +8,7 @@ from typing import Any
 import requests
 
 
-MODEL = "gpt-4o-mini"
+MODEL = os.getenv("AML_OPENAI_MODEL", "gpt-4o-mini")
 DEFAULT_TIMEOUT = float(os.getenv("AML_OPENAI_TIMEOUT", "30"))
 MAX_RETRIES = int(os.getenv("AML_OPENAI_RETRIES", "2"))
 
@@ -46,21 +46,15 @@ def _extract_json(text: str) -> dict[str, Any]:
     start = text.find("{")
     end = text.rfind("}")
     if start < 0 or end <= start:
-        raise ValueError("OpenAI memory extractor returned no JSON object")
+        raise ValueError("OpenAI-compatible memory extractor returned no JSON object")
     value = json.loads(text[start : end + 1])
     if not isinstance(value, dict):
-        raise ValueError("OpenAI memory extractor returned non-object JSON")
+        raise ValueError("OpenAI-compatible memory extractor returned non-object JSON")
     return value
 
 
 def extract_batch(messages: list[dict[str, Any]]) -> dict[str, Any]:
-    """Extract structured memory with the AML-required gpt-4o-mini model.
-
-    The deterministic MemoryAnalyzer remains the safety fallback for parsing
-    only when explicitly enabled. In formal AML mode the LLM call is required,
-    so missing credentials or an API failure raises instead of silently
-    pretending that the Add path used gpt-4o-mini.
-    """
+    """Extract structured memory with the configured OpenAI-compatible endpoint."""
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     required = os.getenv("AML_OPENAI_REQUIRED", "1").strip().lower() not in {"0", "false", "no"}
     if not api_key:
@@ -84,7 +78,9 @@ def extract_batch(messages: list[dict[str, Any]]) -> dict[str, Any]:
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
-    url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/") + "/chat/completions"
+    # OpenAI-compatible Base URL. For UIUI use https://api.uiuihao.com/v1.
+    base_url = os.getenv("OPENAI_BASE_URL", "https://api.uiuihao.com/v1").rstrip("/")
+    url = base_url + "/chat/completions"
 
     last_error: Exception | None = None
     for attempt in range(MAX_RETRIES + 1):
