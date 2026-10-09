@@ -22,6 +22,14 @@ class LightweightReranker:
         "如何", "吗", "呢", "啊", "呀", "请问",
     }
 
+    CAUSAL_MARKERS = (
+        "为什么", "为何", "原因", "因为", "由于", "导致", "结果",
+        "why", "reason", "because", "cause", "caused", "result",
+    )
+    CAUSAL_PREDICATES = {
+        "reason", "cause", "because", "due_to", "caused_by", "导致", "原因",
+    }
+
     @classmethod
     def _tokens(cls, text: str) -> set[str]:
         return {
@@ -74,6 +82,11 @@ class LightweightReranker:
             + exact_phrase,
         )
 
+    @classmethod
+    def _is_causal_query(cls, query: str) -> bool:
+        q = (query or "").lower()
+        return any(marker in q for marker in cls.CAUSAL_MARKERS)
+
     def rerank(
             self,
             query,
@@ -88,6 +101,7 @@ class LightweightReranker:
     ):
         rescored = []
         t0 = time.perf_counter()
+        causal_query = self._is_causal_query(query)
 
         for r in results:
             lexical = self.score(query, r["content"])
@@ -106,7 +120,7 @@ class LightweightReranker:
 
             mt = r.get("memory_type")
             metadata = r.get("metadata") or {}
-            doc_predicate = metadata.get("predicate")
+            doc_predicate = str(metadata.get("predicate") or "").strip().lower()
 
             structured = 0.0
 
@@ -147,6 +161,17 @@ class LightweightReranker:
                 structured += 0.10
             elif intent_hint == "fact" and mt == "fact":
                 structured += 0.05
+
+            # 因果问题应优先选择显式 reason/cause 关系，而不是仅仅共享
+            # “杭州/工作”等表面词的普通事实。这个 bonus 只作用于
+            # 已经进入候选集的结构化证据，不会制造不存在的答案。
+            if causal_query:
+                if doc_predicate in self.CAUSAL_PREDICATES:
+                    structured += 0.22
+                elif mt == "event":
+                    structured += 0.07
+                elif mt == "relation":
+                    structured += 0.03
 
             # 当前有效事实
             if mt == "fact" and r.get("status") == "active":
