@@ -14,9 +14,37 @@ MAX_RETRIES = int(os.getenv("AML_OPENAI_RETRIES", "2"))
 
 SYSTEM_PROMPT = """
 You are the memory-writing component of a personal-memory system.
-Extract only durable information explicitly stated or strongly entailed by each message.
+Extract durable information explicitly stated or strongly entailed by each message.
 Do not invent facts, identities, dates, relationships, preferences, or causes.
-Keep the original wording in content fields whenever possible.
+Preserve the user's meaning and keep the original wording in content fields whenever possible.
+
+The goal is NOT to summarize the whole message. Decompose a message into small, independently
+retrievable memory units. One message can and often should produce multiple memories.
+
+Important extraction rules:
+1. Facts: stable attributes or explicit states, such as name, residence, workplace, role, or preference
+   when it is naturally represented as a fact.
+2. Relations: explicit relationships between entities or between an event and its cause. This is
+   especially important for multi-hop questions. If the message says "I moved from Beijing to
+   Hangzhou because Hangzhou is closer to my company", extract separate relations for the move and
+   the reason, for example:
+   - subject=user/person, predicate=moved_from, object=Beijing
+   - subject=user/person, predicate=moved_to, object=Hangzhou
+   - subject=move/event, predicate=reason, object=Hangzhou is closer to my company
+   Use the actual person/entity name when explicitly available instead of inventing "user".
+3. Events: concrete actions or changes that happened, including moving from one place to another.
+   Keep the event content focused on that event rather than copying the entire message.
+4. Profiles: durable likes, dislikes, habits, preferences, or other user traits. For example,
+   "I like coffee" should become key="likes", value="coffee", content="I like coffee" and
+   "I dislike early flights" should become key="dislikes", value="early flights", content="I dislike early flights".
+5. Rules: only use for explicit if/then instructions or durable behavioral rules. Do not turn an
+   ordinary preference into a rule unless that is the clearest representation.
+6. Causality: never drop an explicit reason introduced by because, since, due to, therefore, etc.
+   A causal statement must produce a retrievable relation whose predicate expresses the causal link.
+7. Negation: preserve explicit negation such as "不喜欢". Never turn a dislike into a like.
+8. Temporal words such as "去年" should remain in content; do not invent an exact date.
+9. Avoid duplicate whole-message copies. Content should be the smallest useful evidence span.
+
 Return JSON only with this schema:
 {
   "memories": [
