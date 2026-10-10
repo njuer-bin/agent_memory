@@ -121,83 +121,6 @@ class MemoryEngine:
         # request_id was already atomically claimed before processing.
         return True
 
-    def _add_neighbor_context(self, candidates, request, limit=100):
-        """Add short evidence windows from adjacent messages in the same session.
-
-        Every window is scoped to the current user and a single session. It is
-        created only when at least one member is already a retrieval candidate,
-        so unrelated sessions do not enter the result set.
-        """
-        raw_scores = {
-            item.get("id"): float(item.get("score", 0.0))
-            for item in candidates
-            if item.get("memory_type") == "raw" and item.get("id")
-        }
-        if not raw_scores:
-            return candidates
-
-        # Re-load the authoritative raw sequence, applying the explicit session
-        # filter when supplied. This prevents joining across skipped messages.
-        rows = self.store.all_raw(
-            request.user_id,
-            session_id=request.session_id,
-        )
-        sessions = {}
-        for row in rows:
-            session = row.get("session_id") or ""
-            sessions.setdefault(session, []).append(row)
-
-        contexts = []
-        existing = {
-            (item.get("memory_type"), item.get("content", "").strip())
-            for item in candidates
-        }
-        for session_id, session_rows in sessions.items():
-            session_rows.sort(key=lambda row: (row.get("timestamp", 0), row.get("id", "")))
-            for index in range(len(session_rows) - 1):
-                left, right = session_rows[index], session_rows[index + 1]
-                if left["id"] not in raw_scores and right["id"] not in raw_scores:
-                    continue
-                left_text = (left.get("content") or "").strip()
-                right_text = (right.get("content") or "").strip()
-                if not left_text or not right_text:
-                    continue
-                content = left_text + "\n" + right_text
-                key = ("raw_context", content)
-                if key in existing:
-                    continue
-
-                member_scores = [
-                    raw_scores[mid]
-                    for mid in (left["id"], right["id"])
-                    if mid in raw_scores
-                ]
-                contexts.append({
-                    "id": f"neighbor:{left['id']}:{right['id']}",
-                    "content": content,
-                    "role": "context",
-                    "timestamp": max(left.get("timestamp", 0), right.get("timestamp", 0)),
-                    "user_id": request.user_id,
-                    "session_id": session_id,
-                    "score": max(member_scores, default=0.0) + 0.001,
-                    "source": "neighbor_context",
-                    "memory_type": "raw_context",
-                    "status": "active",
-                    "valid_from": min(left.get("timestamp", 0), right.get("timestamp", 0)),
-                    "valid_to": None,
-                    "metadata": {
-                        "session_id": session_id,
-                        "neighbor_ids": [left["id"], right["id"]],
-                    },
-                })
-                existing.add(key)
-                if len(contexts) >= limit:
-                    break
-            if len(contexts) >= limit:
-                break
-
-        return list(candidates) + contexts
-
     def search(self, request):
         search_t0 = time.perf_counter()
         query = (request.query or request.question or "").strip()
@@ -289,10 +212,6 @@ class MemoryEngine:
             expanded = self.graph.expand(request.user_id, result[:5], limit=10)
             result.extend(expanded)
             graph_ms = (time.perf_counter() - t0) * 1000
-
-        # Same-session neighbor evidence fills pronoun/entity gaps (e.g. “他” / “那家公司”).
-        # The helper scopes reconstruction to this user and, when requested, this session.
-        result = self._add_neighbor_context(result, request)
 
         # 去重
         dedup = {}
