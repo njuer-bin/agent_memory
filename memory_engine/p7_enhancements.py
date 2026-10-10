@@ -20,31 +20,41 @@ TEMPORAL_MARKERS_EN = (
     "before", "after", "later", "earlier", "recently", "ago",
 )
 
+# Keep references to the original implementations before install_p7 replaces
+# the module-level classes. Calling QueryAnalyzer.infer_* through the patched
+# module would otherwise recurse forever.
+_BASE_QUERY_ANALYZER = query_module.QueryAnalyzer
+_BASE_MEMORY_ANALYZER = analyzer_module.MemoryAnalyzer
+_BASE_MEMORY_GOVERNANCE = governance_module.MemoryGovernance
 
-class P7MemoryAnalyzer(analyzer_module.MemoryAnalyzer):
+
+class P7MemoryAnalyzer(_BASE_MEMORY_ANALYZER):
     """Extend deterministic extraction without replacing the P6 parser."""
 
-    CAUSAL_PATTERNS = analyzer_module.MemoryAnalyzer.CAUSAL_PATTERNS + (
+    CAUSAL_PATTERNS = _BASE_MEMORY_ANALYZER.CAUSAL_PATTERNS + (
+        # Explicit English cause -> effect forms.
         re.compile(r"because\s+(.{1,80}?)\s*(?:,|;)?\s*(?:so|therefore|thus|hence)\s+(.{1,80})", re.I),
         re.compile(r"(.{1,60}?)\s+(?:caused|causes|led to|resulted in|triggered)\s+(.{1,60})", re.I),
-        re.compile(r"(.{1,60}?)\s+(?:was|is)\s+because\s+(.{1,60})", re.I),
+        # Effect because cause, including normal forms such as
+        # "The project was delayed because the supplier failed.".
+        re.compile(r"(.{1,100}?)\s+because\s+(.{1,100})", re.I),
     )
 
-    EVENT_WORDS = analyzer_module.MemoryAnalyzer.EVENT_WORDS + (
+    EVENT_WORDS = _BASE_MEMORY_ANALYZER.EVENT_WORDS + (
         "moved", "graduated", "started", "ended", "joined", "left", "married",
         "divorced", "traveled", "visited", "attended", "bought", "completed",
         "started working", "started a job", "quit", "returned",
     )
 
 
-class P7QueryAnalyzer(query_module.QueryAnalyzer):
+class P7QueryAnalyzer(_BASE_QUERY_ANALYZER):
     """Make English AML temporal/current-state questions first-class."""
 
-    TEMPORAL_MARKERS = query_module.QueryAnalyzer.TEMPORAL_MARKERS + TEMPORAL_MARKERS_EN
+    TEMPORAL_MARKERS = _BASE_QUERY_ANALYZER.TEMPORAL_MARKERS + TEMPORAL_MARKERS_EN
 
     @staticmethod
     def infer_predicate(q: str) -> str | None:
-        base = query_module.QueryAnalyzer.infer_predicate(q)
+        base = _BASE_QUERY_ANALYZER.infer_predicate(q)
         if base:
             return base
         lower = q.lower()
@@ -64,7 +74,7 @@ class P7QueryAnalyzer(query_module.QueryAnalyzer):
 
     @staticmethod
     def infer_memory_type(q: str) -> str | None:
-        base = query_module.QueryAnalyzer.infer_memory_type(q)
+        base = _BASE_QUERY_ANALYZER.infer_memory_type(q)
         if base:
             return base
         lower = q.lower()
@@ -78,7 +88,7 @@ class P7QueryAnalyzer(query_module.QueryAnalyzer):
 
     @staticmethod
     def infer_intent(q: str, memory_type_hint: str | None) -> str | None:
-        base = query_module.QueryAnalyzer.infer_intent(q, memory_type_hint)
+        base = _BASE_QUERY_ANALYZER.infer_intent(q, memory_type_hint)
         if base:
             return base
         if any(x in q.lower() for x in ("why", "because", "caused", "led to", "resulted in")):
@@ -86,7 +96,7 @@ class P7QueryAnalyzer(query_module.QueryAnalyzer):
         return memory_type_hint
 
 
-class P7MemoryGovernance(governance_module.MemoryGovernance):
+class P7MemoryGovernance(_BASE_MEMORY_GOVERNANCE):
     """Keep newer knowledge current while preserving out-of-order evidence."""
 
     def accept_fact(self, fact):
