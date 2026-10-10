@@ -61,12 +61,14 @@ class EmbeddingProvider:
         ]
         return self._normalize(pooled)
 
-    def _embed_chunk_adaptive(self, text: str, min_chars: int = 1500) -> list[float]:
+    def _embed_chunk_adaptive(self, text: str, min_chars: int = 256) -> list[float]:
         """Embed a chunk, shrinking it only when Ollama rejects the chunk.
 
-        We deliberately re-raise at the minimum size instead of silently
-        converting a failed Ollama request into a fake vector. This preserves
-        embedding-space consistency and makes real Ollama failures visible.
+        Some local Ollama configurations expose a much smaller effective
+        embedding context than the nominal model context. We therefore keep
+        shrinking a rejected chunk down to a small, still meaningful window
+        before surfacing the real Ollama error. No alternate embedding space
+        is introduced and failures are never silently converted to vectors.
         """
         try:
             return self._embed_one(text)
