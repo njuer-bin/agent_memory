@@ -20,9 +20,6 @@ TEMPORAL_MARKERS_EN = (
     "before", "after", "later", "earlier", "recently", "ago",
 )
 
-# Keep references to the original implementations before install_p7 replaces
-# the module-level classes. Calling QueryAnalyzer.infer_* through the patched
-# module would otherwise recurse forever.
 _BASE_QUERY_ANALYZER = query_module.QueryAnalyzer
 _BASE_MEMORY_ANALYZER = analyzer_module.MemoryAnalyzer
 _BASE_MEMORY_GOVERNANCE = governance_module.MemoryGovernance
@@ -32,11 +29,8 @@ class P7MemoryAnalyzer(_BASE_MEMORY_ANALYZER):
     """Extend deterministic extraction without replacing the P6 parser."""
 
     CAUSAL_PATTERNS = _BASE_MEMORY_ANALYZER.CAUSAL_PATTERNS + (
-        # Explicit English cause -> effect forms.
         re.compile(r"because\s+(.{1,80}?)\s*(?:,|;)?\s*(?:so|therefore|thus|hence)\s+(.{1,80})", re.I),
         re.compile(r"(.{1,60}?)\s+(?:caused|causes|led to|resulted in|triggered)\s+(.{1,60})", re.I),
-        # Effect because cause, including normal forms such as
-        # "The project was delayed because the supplier failed.".
         re.compile(r"(.{1,100}?)\s+because\s+(.{1,100})", re.I),
     )
 
@@ -45,6 +39,23 @@ class P7MemoryAnalyzer(_BASE_MEMORY_ANALYZER):
         "divorced", "traveled", "visited", "attended", "bought", "completed",
         "started working", "started a job", "quit", "returned",
     )
+
+    @staticmethod
+    def _normalize_english_causal_text(value: str) -> str:
+        value = value.strip()
+        return value[:1].lower() + value[1:] if value else value
+
+    def analyze(self, user_id: str, content: str, timestamp: int, source: str = "user"):
+        analyzed = super().analyze(user_id, content, timestamp, source)
+        for relation in analyzed["relations"]:
+            if relation.predicate == "causes" and re.search(
+                r"\b(?:because|caused|causes|led to|resulted in|triggered)\b",
+                relation.content,
+                re.I,
+            ):
+                relation.subject = self._normalize_english_causal_text(relation.subject)
+                relation.object = self._normalize_english_causal_text(relation.object)
+        return analyzed
 
 
 class P7QueryAnalyzer(_BASE_QUERY_ANALYZER):
@@ -82,7 +93,10 @@ class P7QueryAnalyzer(_BASE_QUERY_ANALYZER):
             return "event"
         if any(x in lower for x in ("why", "because", "caused", "cause", "led to", "resulted in", "relationship", "friend", "coworker", "company")):
             return "relation"
-        if any(x in lower for x in ("like", "favorite", "prefer", "dislike")):
+        if any(x in lower for x in (
+            "like", "favorite", "prefer", "dislike", "live", "reside", "residence", "home",
+            "job", "occupation", "work", "career", "profession", "name", "birthday", "born",
+        )):
             return "fact"
         return None
 
@@ -130,8 +144,6 @@ def install_p7():
     query_module.QueryAnalyzer = P7QueryAnalyzer
     governance_module.MemoryGovernance = P7MemoryGovernance
 
-    # The engine's current-state prioritizer uses explicit Chinese markers.
-    # Normalize English current-state questions into the same retrieval signal.
     try:
         from . import engine as engine_module
     except ImportError:
