@@ -98,7 +98,7 @@ class EvidenceCompletenessPool:
         return output
 
     def _bridge_candidates(self, request: Any, seed_rows: list[dict], plan: QueryPlan) -> list[dict]:
-        """Recover bounded relation paths around retrieved seed entities.
+        """Recover bounded relation paths around planned/retrieved entities.
 
         The graph is only a selector. Returned items are original relation
         records from SQLite and therefore remain auditable evidence.
@@ -107,6 +107,13 @@ class EvidenceCompletenessPool:
             return []
 
         entities = self._entities_from_rows(seed_rows)
+        # Planned entities make the bridge useful even when the first dense
+        # hit is raw prose and therefore has no structured subject/object.
+        for req in self.engine.query_analyzer.evidence_requirements(plan):
+            value = str(req.get("entity") or "").strip()
+            if value and value not in entities:
+                entities.append(value)
+        entities = entities[: self.MAX_BRIDGE_ENTITIES]
         if not entities:
             return []
 
@@ -122,7 +129,7 @@ class EvidenceCompletenessPool:
 
         output: list[dict] = []
         seen: set[str] = set()
-        frontier = list(entities[: self.MAX_BRIDGE_ENTITIES])
+        frontier = list(entities)
         visited_entities = set(frontier)
 
         for hop in range(1, self.BRIDGE_HOPS + 1):
