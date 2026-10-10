@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import time
+from collections import defaultdict
 from typing import Any
 
 from .analyzer import MemoryAnalyzer
@@ -36,6 +37,114 @@ class MemoryEngine:
         self.evidence = EvidenceBuilder()
         self.evidence_chain = EvidenceChainBuilder(max_hops=3)
         self.memory_links = MemoryLinkBuilder()
+
+    @staticmethod
+    def _result_window_enabled() -> bool:
+        return os.getenv("MEMORY_RESULT_WINDOW_ENABLED", "true").strip().lower() not in {
+            "0", "false", "no", "off"
+        }
+
+    @staticmethod
+    def _expand_result_positions(
+        candidates: list[dict],
+        raws: list[dict],
+        seed_k: int = 20,
+        window: int = 1,
+    ) -> list[dict]:
+        """Expand top retrieved evidence with same-session neighboring messages.
+
+        The expansion happens after hybrid retrieval but before reranking. A
+        high-scoring seed can therefore pull back the local turns that explain
+        its cause, transition, or consequence even when those turns are not
+        independently strong dense/BM25 hits. Raw messages remain canonical;
+        expanded neighbors only inherit a small fraction of the seed score.
+        """
+        if not candidates or not raws or seed_k <= 0 or window <= 0:
+            return candidates
+
+        by_session: dict[str, list[dict]] = defaultdict(list)
+        by_id: dict[str, dict] = {}
+        for raw in raws:
+            rid = str(raw.get("id") or "")
+            if not rid:
+                continue
+            by_id[rid] = raw
+            by_session[str(raw.get("session_id") or "")].append(raw)
+
+        positions: dict[str, tuple[list[dict], int]] = {}
+        for session_rows in by_session.values():
+            session_rows.sort(key=lambda r: (int(r.get("timestamp") or 0), str(r.get("id") or "")))
+            for idx, raw in enumerate(session_rows):
+                positions[str(raw.get("id") or "")] = (session_rows, idx)
+
+        existing_ids = {str(item.get("id") or "") for item in candidates}
+        additions: dict[str, dict] = {}
+
+        for seed in sorted(candidates, key=lambda x: float(x.get("score", 0.0)), reverse=True)[:seed_k]:
+            seed_score = float(seed.get("score", 0.0))
+            metadata = seed.get("metadata", {}) or {}
+
+            # A derived window/session view has a canonical center message;
+            # structured memories carry source_message_ids. Prefer the center
+            # so one seed does not fan out across an entire context window.
+            seed_ids = []
+            center_id = str(metadata.get("center_message_id") or "").strip()
+            if center_id:
+                seed_ids.append(center_id)
+            else:
+                source_ids = metadata.get("source_message_ids") or []
+                if isinstance(source_ids, (list, tuple)):
+                    seed_ids.extend(str(x).strip() for x in source_ids[:1] if str(x).strip())
+                elif isinstance(source_ids, str) and source_ids.strip():
+                    seed_ids.append(source_ids.strip())
+
+            if not seed_ids and seed.get("memory_type") == "raw":
+                seed_ids.append(str(seed.get("id") or "").strip())
+
+            for seed_id in seed_ids:
+                located = positions.get(seed_id)
+                if not located:
+                    continue
+                session_rows, center_idx = located
+                lo = max(0, center_idx - window)
+                hi = min(len(session_rows), center_idx + window + 1)
+                for neighbor_idx in range(lo, hi):
+                    if neighbor_idx == center_idx:
+                        continue
+                    neighbor = session_rows[neighbor_idx]
+                    neighbor_id = str(neighbor.get("id") or "")
+                    if not neighbor_id or neighbor_id in existing_ids or neighbor_id in additions:
+                        continue
+
+                    offset = neighbor_idx - center_idx
+                    additions[neighbor_id] = {
+                        "id": neighbor_id,
+                        "content": neighbor.get("content", ""),
+                        "role": neighbor.get("role", "user"),
+                        "timestamp": neighbor.get("timestamp", 0),
+                        "user_id": neighbor.get("user_id"),
+                        "session_id": neighbor.get("session_id", ""),
+                        "score": seed_score * 0.92,
+                        "source": "result_window",
+                        "memory_type": "raw",
+                        "status": "active",
+                        "valid_from": neighbor.get("timestamp", 0),
+                        "valid_to": None,
+                        "metadata": {
+                            "request_id": neighbor.get("request_id"),
+                            "source_message_ids": [neighbor_id],
+                            "view": "result_window_neighbor",
+                            "expanded_from": str(seed.get("id") or ""),
+                            "center_message_id": seed_id,
+                            "window_offset": offset,
+                        },
+                    }
+
+        if additions:
+            # Preserve the existing retrieval order and append only the
+            # evidence that was missing from the initial hybrid result set.
+            return candidates + list(additions.values())
+        return candidates
 
     def add(self, request):
         use_llm = os.getenv("AML_USE_LLM", "1").strip().lower() not in {"0", "false", "no"}
@@ -202,6 +311,25 @@ class MemoryEngine:
 
         candidates = [(x, x["score"]) for x in all_candidates]
         hybrid_ms = (time.perf_counter() - t0) * 1000
+
+        # P7.1: once the hybrid retriever has found high-confidence seed
+        # messages, explicitly bring back the immediate same-session neighbors.
+        # This is deliberately a retrieval-only change: no embeddings,
+        # governance, or reranker weights are modified.
+        if self._result_window_enabled() and all_candidates:
+            raw_for_expansion = self.store.all_raw(request.user_id, session_id=request.session_id)
+            if request.start_time is not None:
+                raw_for_expansion = [r for r in raw_for_expansion if r["timestamp"] >= request.start_time]
+            if request.end_time is not None:
+                raw_for_expansion = [r for r in raw_for_expansion if r["timestamp"] <= request.end_time]
+            seed_k = max(1, int(os.getenv("MEMORY_RESULT_WINDOW_SEED_K", "20")))
+            window = max(1, int(os.getenv("MEMORY_RESULT_WINDOW", "1")))
+            all_candidates = self._expand_result_positions(
+                all_candidates,
+                raw_for_expansion,
+                seed_k=seed_k,
+                window=window,
+            )
 
         second_round_ms = 0.0
 
