@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from memory_engine.engine import MemoryEngine
 from memory_engine.models import AddMessage, AddRequest, SearchRequest
 from memory_engine.vector import EmbeddingProvider
@@ -16,7 +18,7 @@ def test_embedding_splits_oversized_input(monkeypatch):
     monkeypatch.setattr(provider, "_embed_one", fake_embed_one)
     vector = provider.embed("large-message-token " * 5000)
 
-    max_chars = max(512, int(__import__("os").getenv("OLLAMA_EMBED_MAX_CHARS", "6000")))
+    max_chars = max(512, int(os.getenv("OLLAMA_EMBED_MAX_CHARS", "6000")))
     assert len(seen_lengths) > 1
     assert max(seen_lengths) <= max_chars
     assert len(vector) == 3
