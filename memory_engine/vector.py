@@ -20,7 +20,7 @@ class EmbeddingProvider:
     """
 
     def __init__(self, dim=384):
-        self.model = os.getenv("OLLAMA_EMBEDDING_MODEL", "qwen3-embedding:4b")
+        self.model = os.getenv("OLLAMA_EMBEDDING_MODEL", "bge-m3")
         self.url = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/embeddings")
         self.dim = dim
         self.use_ollama = os.getenv("USE_OLLAMA_EMBEDDING", "1") == "1"
