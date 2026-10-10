@@ -158,7 +158,7 @@ class MemoryEngine:
                 right_text = str(right.get("content") or "").strip()
                 if not left_text or not right_text:
                     continue
-                combined = left_text + "\\n" + right_text
+                combined = left_text + "\n" + right_text
                 combined_id = f"neighbor-window:{left_id}:{right_id}"
                 if combined_id in existing_ids or combined_id in additions:
                     continue
