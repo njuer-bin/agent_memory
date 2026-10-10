@@ -46,7 +46,7 @@ class EmbeddingProvider:
             counts[chunk] = counts.get(chunk, 0) + 1
 
         vectors = [
-            (self._embed_chunk_adaptive(chunk, min_chars=max(256, max_chars // 4)), count)
+            (self._embed_chunk_adaptive(chunk, min_chars=256), count)
             for chunk, count in counts.items()
         ]
         if not vectors:
