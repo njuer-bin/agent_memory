@@ -4,10 +4,10 @@ from __future__ import annotations
 class EvidenceBuilder:
     """Select diverse evidence while protecting requirement coverage.
 
-    Retrieval exposes several views of the same raw turn (raw/window/session/
-    provenance).  The benchmark scores message-level evidence, so contextual
-    views must not crowd the final list when the underlying raw message is
-    already available.
+    Retrieval exposes several views of the same raw turn (raw/window/session,
+    provenance, and adjacent-message pairs). Pair windows are explicit
+    multi-message evidence and must remain eligible even when their source
+    messages also appear as individual raw results.
     """
 
     PRIMARY_TYPES = {"raw", "fact", "event", "relation", "rule", "profile"}
@@ -17,6 +17,11 @@ class EvidenceBuilder:
     def _kind_rank(cls, item):
         source = str(item.get("source") or "")
         memory_type = str(item.get("memory_type") or "")
+        # Pair windows can be the only result that contains the complete
+        # cross-turn evidence chain, so don't let individual raw rows crowd
+        # them out of a small final top-k.
+        if source == "result_window_pair":
+            return -1
         if source == "evidence_provenance":
             return 3
         if memory_type in cls.PRIMARY_TYPES:
@@ -34,6 +39,12 @@ class EvidenceBuilder:
         if item.get("memory_type") == "raw" and item.get("id"):
             return {str(item["id"])}
         return set()
+
+    @staticmethod
+    def _may_overlap_selected_sources(item):
+        # Unlike a duplicate contextual wrapper, a pair window intentionally
+        # combines two original messages into one complete evidence unit.
+        return str(item.get("source") or "") == "result_window_pair"
 
     def build(self, candidates, top_k):
         """Select evidence without dropping requirement coverage too early."""
@@ -65,9 +76,11 @@ class EvidenceBuilder:
             chosen = None
             for item in eligible:
                 source_ids = self._source_ids(item)
-                # If a contextual view represents a raw message already chosen
-                # for another requirement, prefer an independent primary row.
-                if self._kind_rank(item) > 0 and source_ids & selected_source_ids:
+                if (
+                    self._kind_rank(item) > 0
+                    and not self._may_overlap_selected_sources(item)
+                    and source_ids & selected_source_ids
+                ):
                     continue
                 chosen = item
                 break
@@ -80,9 +93,8 @@ class EvidenceBuilder:
             if len(selected) >= top_k:
                 return selected[:top_k]
 
-        # Global fill: primary evidence wins over contextual/provenance
-        # duplicates. Context can still enter when it contributes source
-        # messages that are not represented by selected primary evidence.
+        # Global fill: complete pair windows rank ahead of individual rows;
+        # ordinary context views are still suppressed when redundant.
         remaining = [item for item in candidates if item.get("id") not in used_ids]
         remaining.sort(key=lambda item: (
             self._kind_rank(item),
@@ -93,7 +105,11 @@ class EvidenceBuilder:
             if not content or content in seen_content:
                 continue
             source_ids = self._source_ids(item)
-            if self._kind_rank(item) > 0 and source_ids & selected_source_ids:
+            if (
+                self._kind_rank(item) > 0
+                and not self._may_overlap_selected_sources(item)
+                and source_ids & selected_source_ids
+            ):
                 continue
             selected.append(item)
             seen_content.add(content)
