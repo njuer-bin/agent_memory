@@ -30,9 +30,54 @@ class EmbeddingProvider:
         self.embedding_dim: Optional[int] = None
 
     def embed(self, text: str) -> list[float]:
+        """Embed long messages in bounded overlapping chunks without mixing vector spaces."""
+        text = str(text or "")
         if not self.use_ollama:
             return self._hash_embed(text)
 
+        max_chars = max(512, int(os.getenv("OLLAMA_EMBED_MAX_CHARS", "6000")))
+        overlap = min(max_chars // 4, max(0, int(os.getenv("OLLAMA_EMBED_OVERLAP_CHARS", "200"))))
+        if len(text) <= max_chars:
+            return self._embed_one(text)
+
+        chunks = self._split_text(text, max_chars=max_chars, overlap=overlap)
+        counts: dict[str, int] = {}
+        for chunk in chunks:
+            counts[chunk] = counts.get(chunk, 0) + 1
+
+        vectors = [(self._embed_one(chunk), count) for chunk, count in counts.items()]
+        if not vectors:
+            raise ValueError("Cannot embed empty chunked input")
+        dims = {len(vector) for vector, _ in vectors}
+        if len(dims) != 1:
+            raise RuntimeError(f"embedding dimension changed across chunks: {sorted(dims)}")
+        total_weight = sum(count for _, count in vectors)
+        pooled = [
+            sum(vector[i] * count for vector, count in vectors) / total_weight
+            for i in range(len(vectors[0][0]))
+        ]
+        return self._normalize(pooled)
+
+    @staticmethod
+    def _split_text(text: str, max_chars: int, overlap: int) -> list[str]:
+        """Split text into bounded windows, preferring whitespace boundaries."""
+        chunks: list[str] = []
+        start = 0
+        while start < len(text):
+            end = min(start + max_chars, len(text))
+            if end < len(text):
+                boundary = text.rfind(" ", start + max_chars * 2 // 3, end)
+                if boundary > start:
+                    end = boundary
+            chunk = text[start:end].strip()
+            if chunk:
+                chunks.append(chunk)
+            if end >= len(text):
+                break
+            start = max(start + 1, end - overlap)
+        return chunks
+
+    def _embed_one(self, text: str) -> list[float]:
         last_error = None
         for attempt in range(self.retries + 1):
             try:
