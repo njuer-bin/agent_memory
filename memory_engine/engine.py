@@ -140,6 +140,54 @@ class MemoryEngine:
                         },
                     }
 
+        # Build two-message evidence windows for multi-hop questions whose
+        # entities/pronouns are split across adjacent turns (e.g. friend -> company).
+        # The raw rows were already scoped to the current user/session by the caller.
+        candidate_ids = existing_ids | set(additions)
+        for session_rows in by_session.values():
+            session_rows.sort(key=lambda r: (int(r.get("timestamp") or 0), str(r.get("id") or "")))
+            for idx in range(len(session_rows) - 1):
+                left, right = session_rows[idx], session_rows[idx + 1]
+                left_id = str(left.get("id") or "")
+                right_id = str(right.get("id") or "")
+                if not left_id or not right_id:
+                    continue
+                if left_id not in candidate_ids and right_id not in candidate_ids:
+                    continue
+                left_text = str(left.get("content") or "").strip()
+                right_text = str(right.get("content") or "").strip()
+                if not left_text or not right_text:
+                    continue
+                combined = left_text + "\\n" + right_text
+                combined_id = f"neighbor-window:{left_id}:{right_id}"
+                if combined_id in existing_ids or combined_id in additions:
+                    continue
+                seed_scores = [
+                    float(item.get("score", 0.0))
+                    for item in candidates
+                    if str(item.get("id") or "") in {left_id, right_id}
+                ]
+                seed_score = max(seed_scores, default=0.0)
+                additions[combined_id] = {
+                    "id": combined_id,
+                    "content": combined,
+                    "role": "context",
+                    "timestamp": max(int(left.get("timestamp") or 0), int(right.get("timestamp") or 0)),
+                    "user_id": left.get("user_id"),
+                    "session_id": left.get("session_id", ""),
+                    "score": seed_score * 0.95,
+                    "source": "result_window_pair",
+                    "memory_type": "raw_context",
+                    "status": "active",
+                    "valid_from": min(int(left.get("timestamp") or 0), int(right.get("timestamp") or 0)),
+                    "valid_to": None,
+                    "metadata": {
+                        "session_id": left.get("session_id", ""),
+                        "source_message_ids": [left_id, right_id],
+                        "view": "result_window_pair",
+                    },
+                }
+
         if additions:
             # Preserve the existing retrieval order and append only the
             # evidence that was missing from the initial hybrid result set.
