@@ -5,7 +5,7 @@ import re
 from . import analyzer as analyzer_module
 from . import governance as governance_module
 from . import query_analyzer as query_module
-from . import temporal_parser as temporal_module
+from .models import new_id
 
 
 CURRENT_MARKERS_EN = (
@@ -25,9 +25,9 @@ class P7MemoryAnalyzer(analyzer_module.MemoryAnalyzer):
     """Extend deterministic extraction without replacing the P6 parser."""
 
     CAUSAL_PATTERNS = analyzer_module.MemoryAnalyzer.CAUSAL_PATTERNS + (
-        re.compile(r"because\\s+(.{1,80}?)\\s*(?:,|;)?\\s*(?:so|therefore|thus|hence)\\s+(.{1,80})", re.I),
-        re.compile(r"(.{1,60}?)\\s+(?:caused|causes|led to|resulted in|triggered)\\s+(.{1,60})", re.I),
-        re.compile(r"(.{1,60}?)\\s+(?:was|is)\\s+because\\s+(.{1,60})", re.I),
+        re.compile(r"because\s+(.{1,80}?)\s*(?:,|;)?\s*(?:so|therefore|thus|hence)\s+(.{1,80})", re.I),
+        re.compile(r"(.{1,60}?)\s+(?:caused|causes|led to|resulted in|triggered)\s+(.{1,60})", re.I),
+        re.compile(r"(.{1,60}?)\s+(?:was|is)\s+because\s+(.{1,60})", re.I),
     )
 
     EVENT_WORDS = analyzer_module.MemoryAnalyzer.EVENT_WORDS + (
@@ -91,17 +91,15 @@ class P7MemoryGovernance(governance_module.MemoryGovernance):
 
     def accept_fact(self, fact):
         current = self.store.find_current_fact(fact.user_id, fact.subject, fact.predicate)
-        if current and current.get("object") != fact.object:
-            current_ts = int(current.get("timestamp") or current.get("valid_from") or 0)
+        if current and current["object"] != fact.object:
+            current_ts = int(current["timestamp"] or current["valid_from"] or 0)
             fact_ts = int(getattr(fact, "timestamp", 0) or 0)
             if fact_ts < current_ts:
-                # Late-arriving historical evidence must not overwrite the
-                # current state. Keep it as an explicit conflict for audit.
                 fact.conflict_status = "historical_conflict"
                 fact.conflict_group_id = f"late:{fact.user_id}:{fact.predicate}:{fact_ts}"
                 self.store.insert_fact(fact)
                 self.store.insert_conflict_log({
-                    "id": __import__("memory_engine.models", fromlist=["new_id"]).new_id("conflict_log"),
+                    "id": new_id("conflict_log"),
                     "user_id": fact.user_id,
                     "predicate": fact.predicate,
                     "old_fact_id": current["id"],
@@ -122,9 +120,8 @@ def install_p7():
     query_module.QueryAnalyzer = P7QueryAnalyzer
     governance_module.MemoryGovernance = P7MemoryGovernance
 
-    # The engine's current-state prioritizer intentionally uses explicit
-    # Chinese markers. Normalize English current-state questions into the
-    # same retrieval signal without changing their visible text or answer.
+    # The engine's current-state prioritizer uses explicit Chinese markers.
+    # Normalize English current-state questions into the same retrieval signal.
     try:
         from . import engine as engine_module
     except ImportError:
