@@ -45,7 +45,10 @@ class EmbeddingProvider:
         for chunk in chunks:
             counts[chunk] = counts.get(chunk, 0) + 1
 
-        vectors = [(self._embed_one(chunk), count) for chunk, count in counts.items()]
+        vectors = [
+            (self._embed_chunk_adaptive(chunk, min_chars=max(256, max_chars // 4)), count)
+            for chunk, count in counts.items()
+        ]
         if not vectors:
             raise ValueError("Cannot embed empty chunked input")
         dims = {len(vector) for vector, _ in vectors}
@@ -57,6 +60,42 @@ class EmbeddingProvider:
             for i in range(len(vectors[0][0]))
         ]
         return self._normalize(pooled)
+
+    def _embed_chunk_adaptive(self, text: str, min_chars: int = 1500) -> list[float]:
+        """Embed a chunk, shrinking it only when Ollama rejects the chunk.
+
+        We deliberately re-raise at the minimum size instead of silently
+        converting a failed Ollama request into a fake vector. This preserves
+        embedding-space consistency and makes real Ollama failures visible.
+        """
+        try:
+            return self._embed_one(text)
+        except Exception as exc:
+            if len(text) <= min_chars:
+                raise exc
+
+            midpoint = len(text) // 2
+            boundary = text.rfind(" ", min_chars // 2, midpoint)
+            if boundary <= min_chars // 2:
+                boundary = midpoint
+
+            left = text[:boundary].strip()
+            right = text[boundary:].strip()
+            if not left or not right:
+                raise exc
+
+            left_vector = self._embed_chunk_adaptive(left, min_chars=min_chars)
+            right_vector = self._embed_chunk_adaptive(right, min_chars=min_chars)
+            if len(left_vector) != len(right_vector):
+                raise RuntimeError(
+                    f"embedding dimension changed across adaptive chunks: "
+                    f"{len(left_vector)} vs {len(right_vector)}"
+                )
+            pooled = [
+                (left_vector[i] + right_vector[i]) / 2.0
+                for i in range(len(left_vector))
+            ]
+            return self._normalize(pooled)
 
     @staticmethod
     def _split_text(text: str, max_chars: int, overlap: int) -> list[str]:
@@ -137,5 +176,5 @@ def cosine(a,b):
         return 0.0
     dot = sum(x*y for x,y in zip(a,b))
     na = math.sqrt(sum(x*x for x in a))
-    nb = math.sqrt(sum(x*x for x in b))
+    nb = math.sqrt(sum(y*y for y in b))
     return dot / (na*nb) if na and nb else 0.0
