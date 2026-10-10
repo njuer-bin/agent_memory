@@ -26,7 +26,7 @@ _BASE_MEMORY_GOVERNANCE = governance_module.MemoryGovernance
 
 
 class P7MemoryAnalyzer(_BASE_MEMORY_ANALYZER):
-    """Extend deterministic extraction without replacing the P6 parser."""
+    """Keep the useful P7 English extraction extensions."""
 
     CAUSAL_PATTERNS = _BASE_MEMORY_ANALYZER.CAUSAL_PATTERNS + (
         re.compile(r"because\s+(.{1,80}?)\s*(?:,|;)?\s*(?:so|therefore|thus|hence)\s+(.{1,80})", re.I),
@@ -50,8 +50,7 @@ class P7MemoryAnalyzer(_BASE_MEMORY_ANALYZER):
         for relation in analyzed["relations"]:
             if relation.predicate == "causes" and re.search(
                 r"\b(?:because|caused|causes|led to|resulted in|triggered)\b",
-                relation.content,
-                re.I,
+                relation.content, re.I,
             ):
                 relation.subject = self._normalize_english_causal_text(relation.subject)
                 relation.object = self._normalize_english_causal_text(relation.object)
@@ -111,7 +110,7 @@ class P7QueryAnalyzer(_BASE_QUERY_ANALYZER):
 
 
 class P7MemoryGovernance(_BASE_MEMORY_GOVERNANCE):
-    """Keep newer knowledge current while preserving out-of-order evidence."""
+    """Preserve out-of-order facts without replacing newer state."""
 
     def accept_fact(self, fact):
         current = self.store.find_current_fact(fact.user_id, fact.subject, fact.predicate)
@@ -139,7 +138,7 @@ class P7MemoryGovernance(_BASE_MEMORY_GOVERNANCE):
 
 
 def install_p7():
-    """Install P7 classes before MemoryEngine imports its collaborators."""
+    """Install P7 analyzers/governance; P8 owns query-time search policy."""
     analyzer_module.MemoryAnalyzer = P7MemoryAnalyzer
     query_module.QueryAnalyzer = P7QueryAnalyzer
     governance_module.MemoryGovernance = P7MemoryGovernance
@@ -148,24 +147,10 @@ def install_p7():
         from . import engine as engine_module
     except ImportError:
         return
-    if getattr(engine_module.MemoryEngine, "_p7_installed", False):
-        return
-
-    original_search = engine_module.MemoryEngine.search
-
-    def search_with_p7(self, request):
-        query = (request.query or request.question or "").strip()
-        lower = query.lower()
-        is_current = any(marker in lower for marker in CURRENT_MARKERS_EN)
-        original_query = request.query
-        if is_current and "现在" not in query:
-            request.query = query + " 当前 现在"
-        try:
-            return original_search(self, request)
-        finally:
-            request.query = original_query
-
-    engine_module.MemoryEngine.search = search_with_p7
+    # The old P7 search wrapper appended Chinese current-state tokens to
+    # English queries. That increased query drift and coincided with the
+    # explicit-fact regression (A 60 -> 40). P8 now handles current-state
+    # routing without mutating the user's query string.
     engine_module.MemoryEngine._p7_installed = True
 
 
