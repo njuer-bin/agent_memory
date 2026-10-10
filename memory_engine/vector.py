@@ -23,60 +23,6 @@ class EmbeddingProvider:
         self.use_ollama = os.getenv("USE_OLLAMA_EMBEDDING", "1") == "1"
 
     def embed(self, text: str) -> list[float]:
-        """Embed text safely even when a memory is longer than the model context.
-
-        Long inputs are split into bounded overlapping windows. Duplicate windows
-        are embedded once and weighted by their frequency, which keeps repetitive
-        inputs cheap without discarding their contribution to the final vector.
-        """
-        text = str(text or "")
-        max_chars = max(512, int(os.getenv("OLLAMA_EMBED_MAX_CHARS", "6000")))
-        overlap = min(max_chars // 4, max(0, int(os.getenv("OLLAMA_EMBED_OVERLAP_CHARS", "200"))))
-
-        if len(text) <= max_chars:
-            return self._embed_one(text)
-
-        chunks = self._split_text(text, max_chars=max_chars, overlap=overlap)
-        counts: dict[str, int] = {}
-        for chunk in chunks:
-            counts[chunk] = counts.get(chunk, 0) + 1
-
-        vectors = [(self._embed_one(chunk), count) for chunk, count in counts.items()]
-        if not vectors:
-            return self._hash_embed(text)
-
-        # Embedding dimensions should be stable for a given model. Use the
-        # shared prefix defensively in case a backend returns inconsistent sizes.
-        dim = min(len(vector) for vector, _ in vectors)
-        if dim == 0:
-            return self._hash_embed(text)
-        total_weight = sum(count for _, count in vectors)
-        pooled = [
-            sum(vector[i] * count for vector, count in vectors) / total_weight
-            for i in range(dim)
-        ]
-        return self._normalize(pooled)
-
-    @staticmethod
-    def _split_text(text: str, max_chars: int, overlap: int) -> list[str]:
-        """Split on character boundaries, preferring whitespace when available."""
-        chunks: list[str] = []
-        start = 0
-        while start < len(text):
-            end = min(start + max_chars, len(text))
-            if end < len(text):
-                boundary = text.rfind(" ", start + max_chars * 2 // 3, end)
-                if boundary > start:
-                    end = boundary
-            chunk = text[start:end].strip()
-            if chunk:
-                chunks.append(chunk)
-            if end >= len(text):
-                break
-            start = max(start + 1, end - overlap)
-        return chunks
-
-    def _embed_one(self, text: str) -> list[float]:
         if self.use_ollama:
             try:
                 r = requests.post(
@@ -89,8 +35,6 @@ class EmbeddingProvider:
                 if vec:
                     return self._normalize([float(x) for x in vec])
             except Exception:
-                # A failed Ollama request falls back per chunk. This prevents one
-                # oversized document from breaking the complete Add operation.
                 pass
         return self._hash_embed(text)
 
