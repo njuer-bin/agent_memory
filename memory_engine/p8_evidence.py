@@ -1,22 +1,14 @@
 """P8 evidence-completeness retrieval layer.
 
-P8 is intentionally retrieval-only.  It does not generate answers, mutate
-memory, or replace the existing reranker.  The layer adds two sources of
-missing evidence to the existing candidate pool:
-
-1. independent evidence requirements planned by QueryAnalyzer;
-2. a bounded two-hop relation bridge around entities already found by the
-   main retriever.
-
-Both channels return canonical stored evidence with provenance metadata and
-small retrieval scores.  The normal engine dedup/rerank/evidence pipeline
-remains the final authority.
+P8 is intentionally retrieval-only. It does not generate answers, mutate
+memory, or replace the existing reranker. It adds independent evidence
+requirements and a bounded two-hop relation bridge to the candidate pool.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any, Callable
+from typing import Any
 
 from .query_analyzer import QueryPlan
 
@@ -87,8 +79,6 @@ class EvidenceCompletenessPool:
                     intent_hint=plan.intent_hint,
                 )
             except Exception:
-                # Completeness is an optional retrieval channel; a provider
-                # failure must never break the baseline search path.
                 continue
             for row, score in rows:
                 cid = str(row.get("id") or "")
@@ -110,7 +100,7 @@ class EvidenceCompletenessPool:
     def _bridge_candidates(self, request: Any, seed_rows: list[dict], plan: QueryPlan) -> list[dict]:
         """Recover bounded relation paths around retrieved seed entities.
 
-        The graph is only a selector.  Returned items are original relation
+        The graph is only a selector. Returned items are original relation
         records from SQLite and therefore remain auditable evidence.
         """
         if not plan.multi_hop:
@@ -125,8 +115,6 @@ class EvidenceCompletenessPool:
         for rel in relations:
             subject = str(rel.get("subject") or "").strip()
             obj = str(rel.get("object") or "").strip()
-            if not subject and not obj:
-                continue
             if subject:
                 adjacency[subject].append(rel)
             if obj:
@@ -183,13 +171,10 @@ class EvidenceCompletenessPool:
     def collect(self, request: Any, plan: QueryPlan, seed_rows: list[dict]) -> list[dict]:
         extra = self._requirement_candidates(request, plan)
         extra.extend(self._bridge_candidates(request, seed_rows, plan))
-
         dedup: dict[str, dict] = {}
         for item in extra:
             cid = str(item.get("id") or "")
-            if not cid:
-                continue
-            if cid not in dedup:
+            if cid and cid not in dedup:
                 dedup[cid] = item
         return list(dedup.values())
 
@@ -204,8 +189,6 @@ def install_p8() -> None:
     original_search = engine_module.MemoryEngine.search
 
     def search_with_p8(self, request):
-        # Only the first main retrieval call is augmented.  Subsequent
-        # iterative retrieval calls keep their original behavior and latency.
         original_candidates = self.hybrid.candidates
         injected = {"done": False}
 
@@ -227,9 +210,12 @@ def install_p8() -> None:
                 extra = pool.collect(request, plan, seed_rows)
                 existing = {str(row.get("id") or "") for row, _score in rows}
                 rows = list(rows)
-                rows.extend((item, float(item.get("score", 0.0))) for item in extra if str(item.get("id") or "") not in existing)
+                rows.extend(
+                    (item, float(item.get("score", 0.0)))
+                    for item in extra
+                    if str(item.get("id") or "") not in existing
+                )
             except Exception:
-                # P8 must be fail-open so the P6/P7 baseline remains usable.
                 return rows
             return rows
 
@@ -241,3 +227,6 @@ def install_p8() -> None:
 
     engine_module.MemoryEngine.search = search_with_p8
     engine_module.MemoryEngine._p8_installed = True
+
+
+install_p8()
