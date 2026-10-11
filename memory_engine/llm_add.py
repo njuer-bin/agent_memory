@@ -46,7 +46,11 @@ def _persist_extracted(engine, request, messages: list[dict[str, Any]], extracte
                 fingerprint=fingerprint(request.user_id, "fact", subject, predicate, object_),
                 valid_from=temporal.start if temporal.start is not None else timestamp,
                 valid_to=temporal.end, temporal_text=temporal.text,
-                source="gpt-4o-mini",
+                # The model is an extractor; the provenance authority is the
+                # original user message. Treating the extractor as the source
+                # incorrectly prevents a newer user fact from superseding an
+                # older extracted fact under source-aware governance.
+                source="user",
             )
             inserted, _ = engine.governance.accept_fact(fact)
             if inserted:
