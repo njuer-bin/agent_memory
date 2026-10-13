@@ -2,41 +2,38 @@ from __future__ import annotations
 
 """P13: F1-only long-history compression.
 
-P10 remains the canonical retrieval pipeline. This module only changes the
-returned evidence for broad summary/history queries. Ordinary queries return
-P10 results byte-for-byte (same objects and ordering).
-
-The F1 path uses deterministic, loss-aware compression rather than a single
-large dossier: facts, events, preferences/rules, and a chronological change
-view are kept as separate evidence units. This gives the answer model several
-compact, independently retrievable views of a user's long history while
-preserving the underlying raw memory as the source of truth.
+P10 remains the canonical retrieval pipeline. P13.1 only narrows the router
+used by P13 so temporal/history questions do not accidentally enter the F1
+compression path.
 """
 
 import re
 from typing import Any
 
+# Only explicit global-synthesis intent should enter F1. Do not treat generic
+# temporal words such as "之前/以前/过去" as F1 by themselves.
+_F1_CN_PATTERNS = (
+    r"(?:总结|概括|摘要|归纳).*(?:我|我的).*(?:经历|历史|情况|记忆|变化|偏好|整体)",
+    r"(?:整体|总体|全面).*(?:总结|概括|回顾).*(?:我|我的)",
+    r"(?:我|我的).*(?:经历|历史|记忆|变化).*(?:总结|概括|回顾|整体)",
+    r"(?:这些年来|一路以来).*(?:我|我的).*(?:总结|概括|经历|变化)",
+    r"(?:你还记得|你记得).*(?:我|我的).*(?:什么|哪些)",
+)
 
-_SUMMARY_MARKERS = (
-    "总结", "概括", "摘要", "整体", "总体", "全部", "所有", "历史",
-    "以前", "之前", "过去", "长期", "记得什么", "记得我", "关于我的记忆",
-    "关于我的", "我的经历", "我的历史", "我的变化", "这些年来", "一路以来",
-    "summarize", "summary", "summarize my", "recap", "overall", "in general",
-    "what do you remember", "what have you learned", "everything you know",
-    "whole history", "my history", "my past", "over time", "across our conversations",
+_F1_EN_PATTERNS = (
+    r"\b(?:summarize|summary|recap|review)\b.*\b(?:me|my|our)\b",
+    r"\b(?:what do you remember|what have you learned)\b.*\b(?:about me|about my)\b",
+    r"\b(?:everything|all)\b.*\b(?:about me|about my|you know about me)\b",
+    r"\b(?:my|our)\b.*\b(?:history|past|experiences|journey)\b.*\b(?:summarize|summary|recap|overall)\b",
 )
 
 
 def is_f1_query(query: str) -> bool:
+    """Return True only for explicit long-history/global-summary intent."""
     q = str(query or "").strip().lower()
     if not q:
         return False
-    if any(marker in q for marker in _SUMMARY_MARKERS):
-        return True
-    return bool(
-        re.search(r"\b(?:summarize|summary|recap|remember)\b.*\b(?:me|my|our)\b", q)
-        or re.search(r"\b(?:everything|all)\b.*\b(?:about|you know)\b", q)
-    )
+    return any(re.search(pattern, q) for pattern in _F1_CN_PATTERNS + _F1_EN_PATTERNS)
 
 
 def _clean(value: Any) -> str:
@@ -82,13 +79,6 @@ def _item(content: str, *, user_id: str, timestamp: int, view: str, ids: list[st
 
 
 def build_f1_views(engine, request) -> list[dict[str, Any]]:
-    """Create several compact, complementary summary evidence units.
-
-    No raw message is deleted or rewritten in storage. The views are read-time
-    projections designed specifically for the platform's long-history answer
-    generation. Each view has a different coverage objective so a single
-    summary cannot become an information bottleneck.
-    """
     user_id = request.user_id
     facts = list(engine.store.active_facts(user_id, include_history=True))
     events = list(engine.store.events(user_id))
@@ -104,12 +94,14 @@ def build_f1_views(engine, request) -> list[dict[str, Any]]:
 
     views: list[dict[str, Any]] = []
 
-    # Structured extraction is preferred, but raw messages must not disappear
-    # merely because an extractor did not classify them as facts/events.
-    structured_fact_lines = [str(x.get("content") or "") for x in facts]
-    profile_lines = [str(x.get("content") or "") for x in profiles]
-    raw_lines = [str(x.get("content") or "") for x in raws]
-    fact_lines = _dedupe(structured_fact_lines + profile_lines + raw_lines, 28)
+    # Structured extraction is preferred, but raw history remains a loss-aware
+    # fallback for information that was not classified into a structured type.
+    fact_lines = _dedupe(
+        [str(x.get("content") or "") for x in facts]
+        + [str(x.get("content") or "") for x in profiles]
+        + [str(x.get("content") or "") for x in raws],
+        28,
+    )
     fact_ids = [str(x.get("id")) for x in facts + profiles + raws if x.get("id")][:48]
     if fact_lines:
         views.append(_item(
