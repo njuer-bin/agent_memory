@@ -19,6 +19,11 @@ def test_f1_query_detection_is_narrow():
     assert is_f1_query("what do you remember about me?")
     assert not is_f1_query("我现在住在哪里？")
     assert not is_f1_query("2024年发生了什么？")
+    # Temporal words alone must stay on the P10 path.
+    assert not is_f1_query("我之前住在哪里？")
+    assert not is_f1_query("我过去一年做了什么？")
+    assert not is_f1_query("我以前喜欢什么运动？")
+    assert not is_f1_query("之前我们讨论的方案是什么？")
 
 
 def test_f1_views_cover_multiple_memory_types(tmp_path):
