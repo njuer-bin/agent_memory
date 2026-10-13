@@ -14,7 +14,6 @@ preserving the underlying raw memory as the source of truth.
 """
 
 import re
-from collections import OrderedDict
 from typing import Any
 
 
@@ -97,26 +96,26 @@ def build_f1_views(engine, request) -> list[dict[str, Any]]:
     profiles = list(engine.store.profiles(user_id))
     raws = list(engine.store.all_raw(user_id))
 
-    # Keep source ordering deterministic. Facts/events may be newest-first;
-    # chronological view explicitly reverses them later.
     facts.sort(key=lambda x: (int(x.get("timestamp") or x.get("valid_from") or 0), str(x.get("id") or "")), reverse=True)
-    events.sort(key=lambda x: (int(x.get("timestamp") or x.get("valid_from") or 0), str(x.get("id") or "")), reverse=True)
+    events.sort(key=lambda x: (int(x.get("timestamp") or x.get("valid_from") or 0), str(x.get("valid_from") or 0)), reverse=True)
     rules.sort(key=lambda x: (int(x.get("timestamp") or x.get("valid_from") or 0), str(x.get("id") or "")), reverse=True)
     profiles.sort(key=lambda x: (int(x.get("timestamp") or x.get("valid_from") or 0), str(x.get("id") or "")), reverse=True)
     raws.sort(key=lambda x: (int(x.get("timestamp") or 0), str(x.get("id") or "")), reverse=True)
 
     views: list[dict[str, Any]] = []
 
-    fact_lines = _dedupe(
-        [str(x.get("content") or "") for x in facts] + [str(x.get("content") or "") for x in profiles],
-        28,
-    )
-    fact_ids = [str(x.get("id")) for x in facts + profiles if x.get("id")][:40]
+    # Structured extraction is preferred, but raw messages must not disappear
+    # merely because an extractor did not classify them as facts/events.
+    structured_fact_lines = [str(x.get("content") or "") for x in facts]
+    profile_lines = [str(x.get("content") or "") for x in profiles]
+    raw_lines = [str(x.get("content") or "") for x in raws]
+    fact_lines = _dedupe(structured_fact_lines + profile_lines + raw_lines, 28)
+    fact_ids = [str(x.get("id")) for x in facts + profiles + raws if x.get("id")][:48]
     if fact_lines:
         views.append(_item(
             "长期记忆摘要｜事实与个人背景\n" + "\n".join(f"- {x}" for x in fact_lines),
             user_id=user_id,
-            timestamp=max([int(x.get("timestamp") or x.get("valid_from") or 0) for x in facts + profiles] or [0]),
+            timestamp=max([int(x.get("timestamp") or x.get("valid_from") or 0) for x in facts + profiles + raws] or [0]),
             view="facts_profile",
             ids=fact_ids,
             score=1.12,
@@ -150,8 +149,6 @@ def build_f1_views(engine, request) -> list[dict[str, Any]]:
             score=1.10,
         ))
 
-    # A dedicated timeline/change view prevents the classic summary failure:
-    # knowing the current state but losing how it changed over time.
     timeline_source = facts + events
     timeline_source.sort(key=lambda x: (int(x.get("timestamp") or x.get("valid_from") or 0), str(x.get("id") or "")))
     timeline_lines = _dedupe([str(x.get("content") or "") for x in timeline_source], 28)
@@ -166,13 +163,11 @@ def build_f1_views(engine, request) -> list[dict[str, Any]]:
             score=1.09,
         ))
 
-    # If structured extraction is sparse, retain a compact raw-history view so
-    # F1 does not fail simply because older conversations were not structured.
     if not views and raws:
-        raw_lines = _dedupe([str(x.get("content") or "") for x in reversed(raws)], 32)
+        fallback_lines = _dedupe([str(x.get("content") or "") for x in reversed(raws)], 32)
         raw_ids = [str(x.get("id")) for x in raws if x.get("id")][:48]
         views.append(_item(
-            "长期记忆摘要｜原始历史补充\n" + "\n".join(f"- {x}" for x in raw_lines),
+            "长期记忆摘要｜原始历史补充\n" + "\n".join(f"- {x}" for x in fallback_lines),
             user_id=user_id,
             timestamp=max([int(x.get("timestamp") or 0) for x in raws] or [0]),
             view="raw_history_fallback",
@@ -193,8 +188,6 @@ def install_p13() -> None:
 
     def search_with_f1(self, request):
         query = (request.query or request.question or "").strip()
-        # Hard isolation: every non-F1 query follows the P10 search path
-        # without touching or re-ranking its returned rows.
         if not is_f1_query(query):
             return original_search(self, request)
 
@@ -202,9 +195,6 @@ def install_p13() -> None:
         if not views:
             return original_search(self, request)
 
-        # F1 gets only the compact summary views. This intentionally does not
-        # alter normal P10 retrieval, and prevents a summary blob from stealing
-        # a slot from raw evidence on ordinary questions.
         return views[: max(1, int(request.top_k))]
 
     search_with_f1._p13_f1_installed = True
